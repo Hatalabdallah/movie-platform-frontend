@@ -6,6 +6,10 @@ import { useToast } from "@/hooks/use-toast";
 
 interface AuthUser extends User {
   isAdmin?: boolean;
+  isSubscribed?: boolean;
+  subscriptionTier?: string;
+  name?: string;
+  deviceId?: string;
 }
 
 interface AuthContextType {
@@ -90,10 +94,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
+      // Check subscription status
+      const { data: subscription } = await supabase
+        .from("subscriptions")
+        .select("*")
+        .eq("user_id", authUser.id)
+        .eq("status", "active")
+        .gte("end_date", new Date().toISOString())
+        .single();
+
       // Check if user is admin
       const isAdmin = authUser.email === 'admin@movieflix.com';
 
-      setUser({ ...authUser, isAdmin });
+      // Generate device ID based on browser/device info
+      const deviceId = generateDeviceId();
+
+      setUser({ 
+        ...authUser, 
+        isAdmin,
+        isSubscribed: !!subscription,
+        subscriptionTier: subscription?.plan_type || "Free Trial",
+        name: profile?.full_name || authUser.user_metadata?.full_name || authUser.email,
+        deviceId
+      });
     } catch (error) {
       console.error("Error checking user profile:", error);
       toast({
@@ -104,6 +127,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setLoading(false);
     }
+  };
+
+  const generateDeviceId = () => {
+    // Simple device ID generation based on browser info
+    const navigator = window.navigator;
+    const deviceInfo = `${navigator.userAgent}_${navigator.language}_${screen.width}x${screen.height}`;
+    return btoa(deviceInfo).substring(0, 12);
   };
 
   const cleanupAuthState = () => {
