@@ -1,4 +1,3 @@
-
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
@@ -12,19 +11,29 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Play, Upload, Users, BarChart3, LogOut, Film, Trash2, Edit, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { movieService, Movie } from "@/services/movieService";
+import { supabase } from "@/integrations/supabase/client";
 
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [movies, setMovies] = useState<Movie[]>([]);
+  const [stats, setStats] = useState({
+    totalMovies: 0,
+    totalSubscribers: 0,
+    totalDownloads: 0,
+    monthlyRevenue: 0
+  });
+  const [loading, setLoading] = useState(false);
   const [uploadForm, setUploadForm] = useState({
     title: "",
-    description: "",
+    vj: "",
     language: "English",
-    genre: "Action",
-    trailerUrl: "",
-    poster: null as File | null,
-    movieFile: null as File | null
+    category: "Action",
+    size: "",
+    thumbnail_url: "",
+    file_url: ""
   });
 
   useEffect(() => {
@@ -32,8 +41,36 @@ const AdminDashboard = () => {
       navigate("/login");
     } else if (!user.isAdmin) {
       navigate("/dashboard");
+    } else {
+      loadData();
     }
   }, [user, navigate]);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [moviesData, statsData] = await Promise.all([
+        movieService.getAllMovies(),
+        movieService.getMovieStats()
+      ]);
+      
+      setMovies(moviesData);
+      setStats(prev => ({
+        ...prev,
+        totalMovies: statsData.totalMovies,
+        totalDownloads: statsData.totalDownloads
+      }));
+    } catch (error) {
+      console.error("Error loading admin data:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load admin data",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!user || !user.isAdmin) return null;
 
@@ -42,41 +79,85 @@ const AdminDashboard = () => {
     navigate("/");
   };
 
-  const handleUpload = (e: React.FormEvent) => {
+  const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast({
-      title: "Movie uploaded successfully!",
-      description: `${uploadForm.title} has been added to the library.`,
-    });
-    setUploadForm({
-      title: "",
-      description: "",
-      language: "English", 
-      genre: "Action",
-      trailerUrl: "",
-      poster: null,
-      movieFile: null
-    });
+    if (!uploadForm.title || !uploadForm.vj || !uploadForm.size) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await movieService.uploadMovie({
+        title: uploadForm.title,
+        vj: uploadForm.vj,
+        language: uploadForm.language,
+        category: uploadForm.category,
+        size: uploadForm.size,
+        thumbnail_url: uploadForm.thumbnail_url || null,
+        file_url: uploadForm.file_url || null
+      });
+
+      toast({
+        title: "Success",
+        description: `${uploadForm.title} has been uploaded successfully!`
+      });
+
+      setUploadForm({
+        title: "",
+        vj: "",
+        language: "English",
+        category: "Action",
+        size: "",
+        thumbnail_url: "",
+        file_url: ""
+      });
+
+      // Reload data to show the new movie
+      await loadData();
+    } catch (error) {
+      console.error("Error uploading movie:", error);
+      toast({
+        title: "Error",
+        description: "Failed to upload movie",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const mockStats = {
-    totalMovies: 1247,
-    totalSubscribers: 8942,
-    totalDownloads: 45678,
-    monthlyRevenue: 89420
+  const handleDeleteMovie = async (id: string, title: string) => {
+    if (!confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await movieService.deleteMovie(id);
+      
+      toast({
+        title: "Success",
+        description: `${title} has been deleted successfully`
+      });
+
+      // Reload data to reflect the deletion
+      await loadData();
+    } catch (error) {
+      console.error("Error deleting movie:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete movie",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
   };
-
-  const mockRecentMovies = [
-    { id: "1", title: "Quantum Dreams", downloads: 1250, uploadDate: "2024-01-15" },
-    { id: "2", title: "Mountain's Call", downloads: 890, uploadDate: "2024-01-14" },
-    { id: "3", title: "Digital Hearts", downloads: 2100, uploadDate: "2024-01-13" },
-  ];
-
-  const mockRecentSubscribers = [
-    { id: "1", name: "John Doe", email: "john@example.com", signupDate: "2024-01-15", plan: "Premium" },
-    { id: "2", name: "Jane Smith", email: "jane@example.com", signupDate: "2024-01-14", plan: "Basic" },
-    { id: "3", name: "Bob Wilson", email: "bob@example.com", signupDate: "2024-01-13", plan: "Enterprise" },
-  ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted">
@@ -118,79 +199,64 @@ const AdminDashboard = () => {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Total Movies</CardTitle>
-                  <div className="text-2xl font-bold">{mockStats.totalMovies.toLocaleString()}</div>
+                  <div className="text-2xl font-bold">{stats.totalMovies}</div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-xs text-muted-foreground">+12 this month</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Subscribers</CardTitle>
-                  <div className="text-2xl font-bold">{mockStats.totalSubscribers.toLocaleString()}</div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">+347 this month</p>
+                  <p className="text-xs text-muted-foreground">Available movies</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Total Downloads</CardTitle>
-                  <div className="text-2xl font-bold">{mockStats.totalDownloads.toLocaleString()}</div>
+                  <div className="text-2xl font-bold">{stats.totalDownloads}</div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-xs text-muted-foreground">+2,341 this month</p>
+                  <p className="text-xs text-muted-foreground">All time downloads</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Subscribers</CardTitle>
+                  <div className="text-2xl font-bold">{stats.totalSubscribers}</div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">Active users</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Revenue</CardTitle>
-                  <div className="text-2xl font-bold">${mockStats.monthlyRevenue.toLocaleString()}</div>
+                  <div className="text-2xl font-bold">${stats.monthlyRevenue}</div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-xs text-muted-foreground">+15.3% from last month</p>
+                  <p className="text-xs text-muted-foreground">This month</p>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Recent Activity */}
-            <div className="grid md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Recent Movies</CardTitle>
-                  <CardDescription>Latest uploads to the platform</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {mockRecentMovies.map(movie => (
-                    <div key={movie.id} className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{movie.title}</p>
-                        <p className="text-sm text-muted-foreground">{movie.uploadDate}</p>
-                      </div>
-                      <Badge variant="secondary">{movie.downloads} downloads</Badge>
+            {/* Recent Movies */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent Movies</CardTitle>
+                <CardDescription>Latest uploads to the platform</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {movies.slice(0, 5).map(movie => (
+                  <div key={movie.id} className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">{movie.title}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {movie.language} • {movie.category} • {movie.size}
+                      </p>
                     </div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Recent Subscribers</CardTitle>
-                  <CardDescription>New users who joined recently</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {mockRecentSubscribers.map(subscriber => (
-                    <div key={subscriber.id} className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{subscriber.name}</p>
-                        <p className="text-sm text-muted-foreground">{subscriber.email}</p>
-                      </div>
-                      <Badge variant="outline">{subscriber.plan}</Badge>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            </div>
+                    <Badge variant="secondary">{movie.status}</Badge>
+                  </div>
+                ))}
+                {movies.length === 0 && (
+                  <p className="text-muted-foreground">No movies uploaded yet</p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="movies" className="space-y-6">
@@ -207,7 +273,7 @@ const AdminDashboard = () => {
                 <form onSubmit={handleUpload} className="space-y-4">
                   <div className="grid md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="title">Movie Title</Label>
+                      <Label htmlFor="title">Movie Title *</Label>
                       <Input
                         id="title"
                         value={uploadForm.title}
@@ -216,6 +282,18 @@ const AdminDashboard = () => {
                         required
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="vj">VJ/Uploader *</Label>
+                      <Input
+                        id="vj"
+                        value={uploadForm.vj}
+                        onChange={(e) => setUploadForm({...uploadForm, vj: e.target.value})}
+                        placeholder="Enter VJ name"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="language">Language</Label>
                       <Select value={uploadForm.language} onValueChange={(value) => setUploadForm({...uploadForm, language: value})}>
@@ -232,11 +310,9 @@ const AdminDashboard = () => {
                         </SelectContent>
                       </Select>
                     </div>
-                  </div>
-                  <div className="grid md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="genre">Genre</Label>
-                      <Select value={uploadForm.genre} onValueChange={(value) => setUploadForm({...uploadForm, genre: value})}>
+                      <Label htmlFor="category">Category</Label>
+                      <Select value={uploadForm.category} onValueChange={(value) => setUploadForm({...uploadForm, category: value})}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -252,50 +328,40 @@ const AdminDashboard = () => {
                         </SelectContent>
                       </Select>
                     </div>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="trailerUrl">Trailer URL</Label>
+                      <Label htmlFor="size">File Size *</Label>
                       <Input
-                        id="trailerUrl"
-                        value={uploadForm.trailerUrl}
-                        onChange={(e) => setUploadForm({...uploadForm, trailerUrl: e.target.value})}
-                        placeholder="YouTube or video URL"
+                        id="size"
+                        value={uploadForm.size}
+                        onChange={(e) => setUploadForm({...uploadForm, size: e.target.value})}
+                        placeholder="e.g., 1.5GB, 720MB"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="thumbnail_url">Thumbnail URL</Label>
+                      <Input
+                        id="thumbnail_url"
+                        value={uploadForm.thumbnail_url}
+                        onChange={(e) => setUploadForm({...uploadForm, thumbnail_url: e.target.value})}
+                        placeholder="Movie poster/thumbnail URL"
                       />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="description">Description</Label>
-                    <Textarea
-                      id="description"
-                      value={uploadForm.description}
-                      onChange={(e) => setUploadForm({...uploadForm, description: e.target.value})}
-                      placeholder="Enter movie description"
-                      rows={3}
-                      required
+                    <Label htmlFor="file_url">Download File URL</Label>
+                    <Input
+                      id="file_url"
+                      value={uploadForm.file_url}
+                      onChange={(e) => setUploadForm({...uploadForm, file_url: e.target.value})}
+                      placeholder="Direct download link"
                     />
                   </div>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="poster">Movie Poster</Label>
-                      <Input
-                        id="poster"
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => setUploadForm({...uploadForm, poster: e.target.files?.[0] || null})}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="movieFile">Movie File</Label>
-                      <Input
-                        id="movieFile"
-                        type="file"
-                        accept="video/*"
-                        onChange={(e) => setUploadForm({...uploadForm, movieFile: e.target.files?.[0] || null})}
-                      />
-                    </div>
-                  </div>
-                  <Button type="submit" className="w-full">
+                  <Button type="submit" className="w-full" disabled={loading}>
                     <Upload className="h-4 w-4 mr-2" />
-                    Upload Movie
+                    {loading ? "Uploading..." : "Upload Movie"}
                   </Button>
                 </form>
               </CardContent>
@@ -306,32 +372,39 @@ const AdminDashboard = () => {
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Film className="h-5 w-5 mr-2" />
-                  Manage Movies
+                  Manage Movies ({movies.length})
                 </CardTitle>
                 <CardDescription>Edit or delete existing movies</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {mockRecentMovies.map(movie => (
+                  {movies.map(movie => (
                     <div key={movie.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div>
+                      <div className="flex-1">
                         <h4 className="font-medium">{movie.title}</h4>
                         <p className="text-sm text-muted-foreground">
-                          {movie.downloads} downloads • Uploaded {movie.uploadDate}
+                          VJ: {movie.vj} • {movie.language} • {movie.category} • {movie.size}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Uploaded: {new Date(movie.created_at).toLocaleDateString()}
                         </p>
                       </div>
-                      <div className="flex space-x-2">
-                        <Button variant="outline" size="sm">
-                          <Edit className="h-4 w-4 mr-1" />
-                          Edit
-                        </Button>
-                        <Button variant="destructive" size="sm">
+                      <div className="flex items-center space-x-2">
+                        <Badge variant={movie.status === 'available' ? 'default' : 'secondary'}>
+                          {movie.status}
+                        </Badge>
+                        <Button variant="destructive" size="sm" onClick={() => handleDeleteMovie(movie.id, movie.title)} disabled={loading}>
                           <Trash2 className="h-4 w-4 mr-1" />
                           Delete
                         </Button>
                       </div>
                     </div>
                   ))}
+                  {movies.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">
+                      No movies uploaded yet. Upload your first movie above!
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
