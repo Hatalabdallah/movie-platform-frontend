@@ -1,3 +1,4 @@
+
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
@@ -421,23 +422,9 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {mockRecentSubscribers.map(subscriber => (
-                    <div key={subscriber.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div>
-                        <h4 className="font-medium">{subscriber.name}</h4>
-                        <p className="text-sm text-muted-foreground">
-                          {subscriber.email} • Joined {subscriber.signupDate}
-                        </p>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Badge variant="outline">{subscriber.plan}</Badge>
-                        <Button variant="destructive" size="sm">
-                          <Trash2 className="h-4 w-4 mr-1" />
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                  <p className="text-center text-muted-foreground py-8">
+                    Subscriber management functionality will be implemented here.
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -457,30 +444,33 @@ const AdminDashboard = () => {
                   <div>
                     <h4 className="font-medium mb-4">Top Downloaded Movies</h4>
                     <div className="space-y-2">
-                      {mockRecentMovies.sort((a, b) => b.downloads - a.downloads).map((movie, index) => (
+                      {movies.slice(0, 5).map((movie, index) => (
                         <div key={movie.id} className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
                             <Badge variant="outline">#{index + 1}</Badge>
                             <span>{movie.title}</span>
                           </div>
-                          <span className="font-bold">{movie.downloads.toLocaleString()} downloads</span>
+                          <span className="font-bold">0 downloads</span>
                         </div>
                       ))}
+                      {movies.length === 0 && (
+                        <p className="text-muted-foreground">No movies available yet</p>
+                      )}
                     </div>
                   </div>
                   <div>
                     <h4 className="font-medium mb-4">Subscription Distribution</h4>
                     <div className="grid grid-cols-3 gap-4">
                       <div className="text-center p-4 border rounded-lg">
-                        <div className="text-2xl font-bold text-blue-600">45%</div>
+                        <div className="text-2xl font-bold text-blue-600">0%</div>
                         <div className="text-sm text-muted-foreground">Basic</div>
                       </div>
                       <div className="text-center p-4 border rounded-lg">
-                        <div className="text-2xl font-bold text-green-600">40%</div>
+                        <div className="text-2xl font-bold text-green-600">0%</div>
                         <div className="text-sm text-muted-foreground">Premium</div>
                       </div>
                       <div className="text-center p-4 border rounded-lg">
-                        <div className="text-2xl font-bold text-purple-600">15%</div>
+                        <div className="text-2xl font-bold text-purple-600">0%</div>
                         <div className="text-sm text-muted-foreground">Enterprise</div>
                       </div>
                     </div>
