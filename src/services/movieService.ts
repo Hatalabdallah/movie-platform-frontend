@@ -4,6 +4,8 @@ import { Tables, TablesInsert } from "@/integrations/supabase/types";
 
 export type Movie = Tables<"movies">;
 export type MovieInsert = TablesInsert<"movies">;
+export type Download = Tables<"downloads">;
+export type Profile = Tables<"profiles">;
 
 export const movieService = {
   // Get all available movies for subscribers
@@ -26,6 +28,49 @@ export const movieService = {
       .eq("id", id)
       .eq("status", "available")
       .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  // Check if user has downloaded a movie
+  async hasUserDownloadedMovie(userId: string, movieId: string) {
+    const { data, error } = await supabase
+      .rpc("has_user_downloaded_movie", {
+        user_uuid: userId,
+        movie_uuid: movieId
+      });
+
+    if (error) throw error;
+    return data;
+  },
+
+  // Record a download
+  async recordDownload(userId: string, movieId: string) {
+    const { data, error } = await supabase
+      .from("downloads")
+      .insert([{
+        user_id: userId,
+        movie_id: movieId,
+        ip_address: null // You can add IP tracking if needed
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  // Get user's downloads
+  async getUserDownloads(userId: string) {
+    const { data, error } = await supabase
+      .from("downloads")
+      .select(`
+        *,
+        movies (*)
+      `)
+      .eq("user_id", userId)
+      .order("downloaded_at", { ascending: false });
 
     if (error) throw error;
     return data;
@@ -105,17 +150,39 @@ export const movieService = {
     };
   },
 
-  // Get recent movies with download counts
-  async getRecentMoviesWithStats() {
+  // Get platform analytics
+  async getPlatformAnalytics() {
+    const { data, error } = await supabase.rpc("get_platform_analytics");
+    if (error) throw error;
+    return data;
+  },
+
+  // Get movie download statistics
+  async getMovieDownloadStats() {
+    const { data, error } = await supabase.rpc("get_movie_download_stats");
+    if (error) throw error;
+    return data;
+  },
+
+  // Admin: Get all subscribers
+  async getAllSubscribers() {
     const { data, error } = await supabase
-      .from("movies")
-      .select(`
-        *,
-        downloads(count)
-      `)
-      .eq("status", "available")
-      .order("created_at", { ascending: false })
-      .limit(10);
+      .from("profiles")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    return data;
+  },
+
+  // Admin: Delete a subscriber
+  async deleteSubscriber(userId: string) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .delete()
+      .eq("id", userId)
+      .select()
+      .single();
 
     if (error) throw error;
     return data;

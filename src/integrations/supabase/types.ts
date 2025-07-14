@@ -162,8 +162,24 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_movie_download_stats: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          movie_id: string
+          movie_title: string
+          download_count: number
+        }[]
+      }
+      get_platform_analytics: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
       has_active_subscription: {
         Args: { user_uuid: string }
+        Returns: boolean
+      }
+      has_user_downloaded_movie: {
+        Args: { user_uuid: string; movie_uuid: string }
         Returns: boolean
       }
     }

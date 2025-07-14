@@ -1,39 +1,46 @@
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Play, Search, Filter, Download, Star, Clock, LogOut, Crown } from "lucide-react";
-import { movieService, Movie } from "@/services/movieService";
+import { Badge } from "@/components/ui/badge";
+import { Play, Search, Filter, LogOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { movieService, Movie } from "@/services/movieService";
+import { MovieCard } from "@/components/MovieCard";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const Movies = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [movies, setMovies] = useState<Movie[]>([]);
+  const [userDownloads, setUserDownloads] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedGenre, setSelectedGenre] = useState("all");
-  const [selectedLanguage, setSelectedLanguage] = useState("all");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [selectedLanguage, setSelectedLanguage] = useState<string>("all");
 
   useEffect(() => {
     if (!user) {
       navigate("/login");
     } else {
-      loadMovies();
+      loadData();
     }
   }, [user, navigate]);
 
-  const loadMovies = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      const moviesData = await movieService.getMovies();
+      const [moviesData, downloadsData] = await Promise.all([
+        movieService.getMovies(),
+        movieService.getUserDownloads(user!.id)
+      ]);
+      
       setMovies(moviesData);
+      setUserDownloads(downloadsData.map(d => d.movie_id));
     } catch (error) {
       console.error("Error loading movies:", error);
       toast({
@@ -46,23 +53,29 @@ const Movies = () => {
     }
   };
 
-  if (!user) return null;
-
-  const handleLogout = () => {
-    logout();
-    navigate("/");
+  const handleLogout = async () => {
+    try {
+      // Single device enforcement - sign out globally
+      await logout();
+      navigate("/");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   const filteredMovies = movies.filter(movie => {
-    const matchesSearch = movie.title.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesGenre = selectedGenre === "all" || movie.category === selectedGenre;
+    const matchesSearch = movie.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         movie.vj.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = selectedCategory === "all" || movie.category === selectedCategory;
     const matchesLanguage = selectedLanguage === "all" || movie.language === selectedLanguage;
     
-    return matchesSearch && matchesGenre && matchesLanguage;
+    return matchesSearch && matchesCategory && matchesLanguage;
   });
 
-  const genres = ["all", ...Array.from(new Set(movies.map(m => m.category)))];
-  const languages = ["all", ...Array.from(new Set(movies.map(m => m.language)))];
+  const categories = [...new Set(movies.map(movie => movie.category))];
+  const languages = [...new Set(movies.map(movie => movie.language))];
+
+  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted">
@@ -74,9 +87,8 @@ const Movies = () => {
             <h1 className="text-2xl font-bold">MovieFlix Pro</h1>
           </Link>
           <div className="flex items-center space-x-4">
-            <Badge variant={user.isSubscribed ? "default" : "secondary"}>
-              {user.isSubscribed ? `${user.subscriptionTier} Member` : "Free Trial"}
-            </Badge>
+            <ThemeToggle />
+            <Badge variant="secondary">Premium</Badge>
             <Button variant="ghost" size="icon" onClick={handleLogout}>
               <LogOut className="h-5 w-5" />
             </Button>
@@ -85,150 +97,98 @@ const Movies = () => {
       </header>
 
       <div className="container mx-auto px-4 py-8">
-        {/* Subscription Check */}
-        {!user.isSubscribed && (
-          <Card className="mb-8 border-orange-500 bg-orange-50 dark:bg-orange-950/20">
-            <CardHeader>
-              <div className="flex items-center space-x-2">
-                <Crown className="h-6 w-6 text-orange-500" />
-                <CardTitle className="text-orange-700 dark:text-orange-300">
-                  Subscription Required
-                </CardTitle>
-              </div>
-              <CardDescription className="text-orange-600 dark:text-orange-400">
-                You need an active subscription to download movies. Browse our collection and subscribe to get started!
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Link to="/subscription">
-                <Button className="bg-orange-500 hover:bg-orange-600">
-                  Subscribe Now
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Header */}
         <div className="mb-8">
           <h2 className="text-3xl font-bold mb-2">Movie Library</h2>
           <p className="text-muted-foreground">
-            Discover and download premium movies in high quality ({movies.length} movies available)
+            Download your favorite movies. Each movie can only be downloaded once.
           </p>
         </div>
 
         {/* Search and Filters */}
-        <div className="flex flex-col md:flex-row gap-4 mb-8">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-            <Input
-              placeholder="Search movies..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+        <div className="mb-8 space-y-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+              <Input
+                placeholder="Search movies or VJ..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger className="w-[150px]">
+                  <Filter className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {categories.map(category => (
+                    <SelectItem key={category} value={category}>{category}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={selectedLanguage} onValueChange={setSelectedLanguage}>
+                <SelectTrigger className="w-[130px]">
+                  <SelectValue placeholder="Language" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Languages</SelectItem>
+                  {languages.map(language => (
+                    <SelectItem key={language} value={language}>{language}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <Select value={selectedGenre} onValueChange={setSelectedGenre}>
-            <SelectTrigger className="w-full md:w-40">
-              <Filter className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Genre" />
-            </SelectTrigger>
-            <SelectContent>
-              {genres.map(genre => (
-                <SelectItem key={genre} value={genre}>
-                  {genre === "all" ? "All Genres" : genre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={selectedLanguage} onValueChange={setSelectedLanguage}>
-            <SelectTrigger className="w-full md:w-40">
-              <SelectValue placeholder="Language" />
-            </SelectTrigger>
-            <SelectContent>
-              {languages.map(language => (
-                <SelectItem key={language} value={language}>
-                  {language === "all" ? "All Languages" : language}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
 
-        {/* Loading State */}
-        {loading && (
-          <div className="text-center py-12">
-            <p className="text-xl text-muted-foreground">Loading movies...</p>
-          </div>
-        )}
-
         {/* Movies Grid */}
-        {!loading && (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredMovies.map(movie => (
-              <Card key={movie.id} className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-                <div className="relative overflow-hidden rounded-t-lg">
-                  <img
-                    src={movie.thumbnail_url || "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=300&h=450&fit=crop"}
-                    alt={movie.title}
-                    className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <div className="absolute top-2 right-2">
-                    <Badge variant="secondary" className="bg-black/80 text-white">
-                      {movie.category}
-                    </Badge>
-                  </div>
-                  <div className="absolute bottom-2 left-2">
-                    <Badge variant="outline" className="bg-black/80 text-white border-white/20">
-                      {movie.size}
-                    </Badge>
-                  </div>
+        {loading ? (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="animate-pulse">
+                <div className="bg-muted aspect-[2/3] rounded-lg mb-4"></div>
+                <div className="space-y-2">
+                  <div className="h-4 bg-muted rounded w-3/4"></div>
+                  <div className="h-3 bg-muted rounded w-1/2"></div>
                 </div>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-lg line-clamp-1">{movie.title}</CardTitle>
-                  <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-                    <span>{movie.language}</span>
-                    <span>VJ: {movie.vj}</span>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      Uploaded: {new Date(movie.created_at).toLocaleDateString()}
-                    </span>
-                    <div className="flex space-x-2">
-                      <Link to={`/movies/${movie.id}`}>
-                        <Button variant="outline" size="sm">
-                          Details
-                        </Button>
-                      </Link>
-                      {user.isSubscribed ? (
-                        <Button size="sm" disabled={!movie.file_url}>
-                          <Download className="h-4 w-4 mr-1" />
-                          {movie.file_url ? "Download" : "Coming Soon"}
-                        </Button>
-                      ) : (
-                        <Button size="sm" disabled>
-                          <Crown className="h-4 w-4 mr-1" />
-                          Subscribe
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              </div>
+            ))}
+          </div>
+        ) : filteredMovies.length === 0 ? (
+          <div className="text-center py-12">
+            <Play className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium mb-2">No movies found</h3>
+            <p className="text-muted-foreground">
+              {searchTerm || selectedCategory !== "all" || selectedLanguage !== "all"
+                ? "Try adjusting your search criteria"
+                : "No movies are available at the moment"}
+            </p>
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredMovies.map(movie => (
+              <MovieCard
+                key={movie.id}
+                movie={movie}
+                isDownloaded={userDownloads.includes(movie.id)}
+                onDownload={loadData}
+              />
             ))}
           </div>
         )}
 
-        {!loading && filteredMovies.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-xl text-muted-foreground mb-4">No movies found</p>
-            <p className="text-muted-foreground">
-              {movies.length === 0 ? "No movies have been uploaded yet" : "Try adjusting your search or filters"}
-            </p>
-          </div>
-        )}
+        {/* Stats */}
+        <div className="mt-12 text-center">
+          <p className="text-muted-foreground">
+            Showing {filteredMovies.length} of {movies.length} movies
+            {userDownloads.length > 0 && (
+              <span className="ml-2">• {userDownloads.length} downloaded</span>
+            )}
+          </p>
+        </div>
       </div>
     </div>
   );
