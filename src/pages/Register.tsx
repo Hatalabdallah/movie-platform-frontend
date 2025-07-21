@@ -1,3 +1,4 @@
+// movie-platform-frontend/src/pages/Register.tsx
 
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -6,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Play, Eye, EyeOff } from "lucide-react";
+import { Film, Eye, EyeOff } from "lucide-react"; // Changed Play to Film
 import { useToast } from "@/hooks/use-toast";
 
 const Register = () => {
@@ -27,7 +28,7 @@ const Register = () => {
       await register(email, password, name);
       toast({
         title: "Account created!",
-        description: "Welcome to MovieFlix Pro. Complete your subscription to start downloading.",
+        description: "Welcome to Ronnie's Ent. Complete your subscription to start downloading.",
       });
       navigate("/subscription");
     } catch (error) {
@@ -46,8 +47,8 @@ const Register = () => {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex items-center justify-center space-x-2 mb-4">
-            <Play className="h-8 w-8 text-primary" />
-            <span className="text-2xl font-bold">MovieFlix Pro</span>
+            <Film className="h-8 w-8 text-primary" /> {/* Changed Play to Film */}
+            <span className="text-2xl font-bold">Ronnie's Ent</span>
           </div>
           <CardTitle className="text-2xl">Create Account</CardTitle>
           <CardDescription>

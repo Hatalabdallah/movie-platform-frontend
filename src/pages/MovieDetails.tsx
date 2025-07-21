@@ -1,3 +1,4 @@
+// movie-platform-frontend/src/pages/MovieDetails.tsx
 
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, Link, useParams } from "react-router-dom";
@@ -7,51 +8,60 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Play, Download, Star, Clock, Calendar, Globe, LogOut, Crown, ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-
-// Mock movie data - in a real app, this would come from an API
-const mockMovieDetails = {
-  "1": {
-    id: "1",
-    title: "Quantum Dreams",
-    description: "A sci-fi thriller about parallel universes and the nature of reality. Dr. Sarah Chen, a quantum physicist, discovers a way to communicate with alternate versions of herself across multiple dimensions. As she explores these parallel worlds, she uncovers a cosmic threat that could destroy all realities. With time running out, she must unite with her alternate selves to save the multiverse from collapse.",
-    poster: "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=600&h=900&fit=crop",
-    year: 2024,
-    duration: "2h 15m",
-    genre: "Sci-Fi",
-    language: "English",
-    rating: 8.5,
-    trailerUrl: "https://youtube.com/watch?v=example1",
-    downloadCount: 1250,
-    director: "Michael Rodriguez",
-    cast: ["Emma Stone", "Oscar Isaac", "Lupita Nyong'o", "Dev Patel"],
-    releaseDate: "2024-01-15",
-    fileSize: "4.2 GB",
-    quality: "4K UHD"
-  }
-};
+import { Movie as NodeMovie, nodeBackendService, API_BASE_URL } from "@/services/nodeBackendService"; // Corrected import for API_BASE_URL
 
 const MovieDetails = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>(); // Ensure id is typed as string
   const { toast } = useToast();
+  const [movie, setMovie] = useState<NodeMovie | null>(null); // State to store fetched movie details
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
     if (!user) {
       navigate("/login");
+      return;
     }
-  }, [user, navigate]);
 
-  if (!user) return null;
+    const fetchMovieDetails = async () => {
+      if (!id) {
+        setError("Movie ID is missing.");
+        setLoading(false);
+        return;
+      }
+      try {
+        setLoading(true);
+        const fetchedMovie = await nodeBackendService.getMovieById(id);
+        setMovie(fetchedMovie);
+      } catch (err) {
+        console.error("Error fetching movie details:", err);
+        setError("Failed to load movie details.");
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const movie = mockMovieDetails[id as keyof typeof mockMovieDetails];
-  
-  if (!movie) {
+    fetchMovieDetails();
+  }, [user, navigate, id]); // Depend on user and id to refetch if they change
+
+  if (!user) return null; // Should redirect by useEffect, but good for safety
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-lg text-muted-foreground">Loading movie details...</p>
+      </div>
+    );
+  }
+
+  if (error || !movie) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Movie Not Found</h1>
+          <h1 className="text-2xl font-bold mb-4">{error || "Movie Not Found"}</h1>
           <Link to="/movies">
             <Button>Back to Movies</Button>
           </Link>
@@ -75,21 +85,46 @@ const MovieDetails = () => {
       return;
     }
 
-    setIsDownloading(true);
-    
-    // Simulate download process
-    setTimeout(() => {
-      setIsDownloading(false);
+    // Ensure movie.file_url exists before attempting download
+    if (!movie.file_url) {
       toast({
-        title: "Download Started",
-        description: `${movie.title} is being downloaded to your device.`,
+        title: "Error",
+        description: "Movie file URL is missing. Cannot download.",
+        variant: "destructive",
       });
-    }, 2000);
+      return;
+    }
+
+    setIsDownloading(true);
+    try {
+      // Directly opens the file URL in a new tab/window to initiate download
+      window.open(movie.file_url, '_blank'); 
+
+      toast({
+        title: "Download Initiated",
+        description: `${movie.title} download should begin shortly.`,
+      });
+    } catch (error) {
+      console.error("Error initiating download:", error);
+      toast({
+        title: "Download Failed",
+        description: "Could not initiate movie download. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
-  const handleWatchTrailer = () => {
-    if (movie.trailerUrl) {
-      window.open(movie.trailerUrl, '_blank');
+  // Removed handleWatchTrailer function as streaming is not supported.
+
+  // Helper for formatting created_at (which is the only date field in your NodeMovie interface)
+  const formatMovieDate = (dateString: string | undefined) => {
+    if (!dateString) return "N/A";
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    } catch {
+      return "Invalid Date";
     }
   };
 
@@ -101,11 +136,12 @@ const MovieDetails = () => {
           <Link to="/movies" className="flex items-center space-x-2">
             <ArrowLeft className="h-5 w-5" />
             <Play className="h-8 w-8 text-primary" />
-            <h1 className="text-2xl font-bold">MovieFlix Pro</h1>
+            <h1 className="text-2xl font-bold">Ronnie's Ent</h1>
           </Link>
           <div className="flex items-center space-x-4">
+            {/* Use user.isSubscribed directly from AuthContext */}
             <Badge variant={user.isSubscribed ? "default" : "secondary"}>
-              {user.isSubscribed ? `${user.subscriptionTier} Member` : "Free Trial"}
+              {user.isSubscribed ? `${user.subscriptionPlan || 'Active'} Member` : "Free Trial"}
             </Badge>
             <Button variant="ghost" size="icon" onClick={handleLogout}>
               <LogOut className="h-5 w-5" />
@@ -120,16 +156,27 @@ const MovieDetails = () => {
           {/* Movie Poster */}
           <div className="lg:col-span-1">
             <div className="relative">
-              <img
-                src={movie.poster}
-                alt={movie.title}
-                className="w-full rounded-lg shadow-2xl"
-              />
+              {movie.thumbnail_url ? (
+                <img
+                  src={`${API_BASE_URL}${movie.thumbnail_url}`}
+                  alt={`${movie.title} thumbnail`}
+                  className="w-full rounded-lg shadow-2xl object-cover aspect-[2/3]"
+                  onError={(e) => {
+                    e.currentTarget.src = '/placeholder.png'; // Fallback image
+                    e.currentTarget.alt = 'Thumbnail not available';
+                  }}
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center rounded-lg shadow-2xl aspect-[2/3]">
+                  <Play className="h-24 w-24 text-primary/50" />
+                </div>
+              )}
               <div className="absolute top-4 right-4">
-                <Badge variant="secondary" className="bg-black/80 text-white">
+                {/* Assuming rating is not directly available from NodeMovie, or you add it */}
+                {/* <Badge variant="secondary" className="bg-black/80 text-white">
                   <Star className="h-3 w-3 mr-1" />
-                  {movie.rating}
-                </Badge>
+                  {movie.rating || 'N/A'}
+                </Badge> */}
               </div>
             </div>
           </div>
@@ -139,22 +186,25 @@ const MovieDetails = () => {
             <div>
               <h1 className="text-4xl font-bold mb-2">{movie.title}</h1>
               <div className="flex flex-wrap items-center gap-4 mb-4">
-                <Badge variant="outline">{movie.genre}</Badge>
-                <span className="flex items-center text-muted-foreground">
-                  <Calendar className="h-4 w-4 mr-1" />
-                  {movie.year}
-                </span>
-                <span className="flex items-center text-muted-foreground">
+                {movie.category && <Badge variant="outline">{movie.category}</Badge>}
+                {movie.created_at && (
+                  <span className="flex items-center text-muted-foreground">
+                    <Calendar className="h-4 w-4 mr-1" />
+                    {formatMovieDate(movie.created_at)}
+                  </span>
+                )}
+                {/* Duration and Language are not in NodeMovie interface, add if needed */}
+                {/* <span className="flex items-center text-muted-foreground">
                   <Clock className="h-4 w-4 mr-1" />
                   {movie.duration}
                 </span>
                 <span className="flex items-center text-muted-foreground">
                   <Globe className="h-4 w-4 mr-1" />
                   {movie.language}
-                </span>
+                </span> */}
               </div>
               <p className="text-lg text-muted-foreground leading-relaxed">
-                {movie.description}
+                {movie.description || "No description available."}
               </p>
             </div>
 
@@ -164,7 +214,7 @@ const MovieDetails = () => {
                 <Button 
                   size="lg" 
                   onClick={handleDownload}
-                  disabled={isDownloading}
+                  disabled={isDownloading || !movie.file_url} // Disable if no file_url
                   className="px-8"
                 >
                   <Download className="h-5 w-5 mr-2" />
@@ -179,20 +229,17 @@ const MovieDetails = () => {
                 </Link>
               )}
               
-              <Button 
-                variant="outline" 
-                size="lg" 
-                onClick={handleWatchTrailer}
-                className="px-8"
-              >
-                <Play className="h-5 w-5 mr-2" />
-                Watch Trailer
-              </Button>
+              {/* Removed "Watch Trailer" button */}
             </div>
 
-            {/* Movie Stats */}
+            {/* Movie Stats (adjust based on available NodeMovie properties) */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="text-center p-4 bg-muted/50 rounded-lg">
+                <div className="text-2xl font-bold text-primary">{movie.size ? (movie.size / (1024 * 1024 * 1024)).toFixed(2) + ' GB' : 'N/A'}</div>
+                <div className="text-sm text-muted-foreground">File Size</div>
+              </div>
+              {/* Other stats like downloadCount, rating, quality are not in NodeMovie, add if needed */}
+              {/* <div className="text-center p-4 bg-muted/50 rounded-lg">
                 <div className="text-2xl font-bold text-primary">{movie.downloadCount}</div>
                 <div className="text-sm text-muted-foreground">Downloads</div>
               </div>
@@ -201,18 +248,14 @@ const MovieDetails = () => {
                 <div className="text-sm text-muted-foreground">Rating</div>
               </div>
               <div className="text-center p-4 bg-muted/50 rounded-lg">
-                <div className="text-2xl font-bold text-primary">{movie.fileSize}</div>
-                <div className="text-sm text-muted-foreground">File Size</div>
-              </div>
-              <div className="text-center p-4 bg-muted/50 rounded-lg">
                 <div className="text-2xl font-bold text-primary">{movie.quality}</div>
                 <div className="text-sm text-muted-foreground">Quality</div>
-              </div>
+              </div> */}
             </div>
           </div>
         </div>
 
-        {/* Movie Details Cards */}
+        {/* Movie Details Cards (adjust based on available NodeMovie properties) */}
         <div className="grid md:grid-cols-2 gap-6">
           <Card>
             <CardHeader>
@@ -220,54 +263,40 @@ const MovieDetails = () => {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Director</span>
-                <span className="font-medium">{movie.director}</span>
+                <span className="text-muted-foreground">VJ</span>
+                <span className="font-medium">{movie.vj}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Release Date</span>
-                <span className="font-medium">{movie.releaseDate}</span>
+                <span className="text-muted-foreground">Category</span>
+                <span className="font-medium">{movie.category}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Genre</span>
-                <span className="font-medium">{movie.genre}</span>
+                <span className="text-muted-foreground">Created At</span>
+                <span className="font-medium">{formatMovieDate(movie.created_at)}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Language</span>
-                <span className="font-medium">{movie.language}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Duration</span>
-                <span className="font-medium">{movie.duration}</span>
-              </div>
+              {/* Add other fields from NodeMovie if desired, e.g., description, file_url */}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Cast & Crew</CardTitle>
+              <CardTitle>Additional Details</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                <div>
-                  <h4 className="font-medium mb-2">Starring</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {movie.cast.map((actor, index) => (
-                      <Badge key={index} variant="secondary">
-                        {actor}
-                      </Badge>
-                    ))}
+                {movie.description && (
+                  <div>
+                    <h4 className="font-medium mb-2">Description</h4>
+                    <p className="text-sm text-muted-foreground">{movie.description}</p>
                   </div>
-                </div>
-                <div>
-                  <h4 className="font-medium mb-2">Director</h4>
-                  <Badge variant="outline">{movie.director}</Badge>
-                </div>
+                )}
+                {/* You can add more details here if your NodeMovie interface expands */}
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Download Information */}
+        {/* Download Information - Conditional rendering based on subscription */}
         {!user.isSubscribed && (
           <Card className="mt-6 border-orange-500 bg-orange-50 dark:bg-orange-950/20">
             <CardHeader>
@@ -278,7 +307,7 @@ const MovieDetails = () => {
                 </CardTitle>
               </div>
               <CardDescription className="text-orange-600 dark:text-orange-400">
-                Subscribe to MovieFlix Pro to download this movie and thousands more in high quality.
+                Subscribe to Ronnie's Ent to download this movie and thousands more in high quality.
               </CardDescription>
             </CardHeader>
             <CardContent>

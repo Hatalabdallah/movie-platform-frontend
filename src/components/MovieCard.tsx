@@ -1,52 +1,74 @@
+// movie-platform-frontend/src/components/MovieCard.tsx
 
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, Play, CheckCircle, Calendar, User, Globe, HardDrive } from "lucide-react";
+import { Download, Play, Calendar, Crown, User } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { movieService, Movie } from "@/services/movieService";
-import { useAuth } from "@/contexts/AuthContext";
+// Removed useAuth import as isSubscribed will be passed as a prop
+// import { useAuth } from "@/contexts/AuthContext"; 
+import { Movie as NodeMovie } from "@/services/nodeBackendService";
+import { Link } from "react-router-dom";
+
+// Get the backend URL from environment variables
+const BACKEND_BASE_URL = import.meta.env.VITE_NODE_BACKEND_URL || 'http://localhost:3001';
 
 interface MovieCardProps {
-  movie: Movie;
-  isDownloaded?: boolean;
-  onDownload?: () => void;
+  movie: NodeMovie;
+  isSubscribed: boolean; // NEW: Add isSubscribed as a prop
 }
 
-export function MovieCard({ movie, isDownloaded = false, onDownload }: MovieCardProps) {
+export function MovieCard({ movie, isSubscribed }: MovieCardProps) { // Destructure isSubscribed prop
   const [isDownloading, setIsDownloading] = useState(false);
   const { toast } = useToast();
-  const { user } = useAuth();
+  // Removed user from useAuth as isSubscribed is now a prop
+  // const { user } = useAuth(); 
+
+  // Construct the full absolute URL for the thumbnail
+  const fullThumbnailUrl = movie.thumbnail_url
+    ? `${BACKEND_BASE_URL}${movie.thumbnail_url}`
+    : null;
+
+  console.log(`Movie ID: ${movie.id}, Title: ${movie.title}, Thumbnail URL: ${fullThumbnailUrl}`);
+  console.log(`  Created at value:`, movie.created_at, `(type: ${typeof movie.created_at})`);
+  // Add a log for the isSubscribed prop to debug its value
+  console.log(`  isSubscribed prop in MovieCard:`, isSubscribed);
+
 
   const handleDownload = async () => {
-    if (!user || isDownloaded) return;
-
-    try {
-      setIsDownloading(true);
-      
-      // Record the download
-      await movieService.recordDownload(user.id, movie.id);
-      
-      // If there's a file URL, trigger download
-      if (movie.file_url) {
-        window.open(movie.file_url, '_blank');
-      }
-
+    // Use the isSubscribed prop directly
+    if (!isSubscribed) { 
       toast({
-        title: "Download Started",
-        description: `${movie.title} download has been initiated.`
+        title: "Subscription Required",
+        description: "You need an active subscription to download movies.",
+        variant: "destructive"
       });
+      return;
+    }
 
-      // Call the callback to refresh the parent component
-      if (onDownload) {
-        onDownload();
-      }
-    } catch (error) {
-      console.error("Download error:", error);
+    if (!movie.file_url) {
       toast({
-        title: "Download Failed",
-        description: "There was an error starting the download.",
+        title: "Error",
+        description: "Movie file URL is missing.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsDownloading(true);
+    try {
+      window.open(movie.file_url, '_blank'); // Directly opens the file URL
+
+      toast({
+        title: "Download Initiated",
+        description: `Attempting to download ${movie.title}.`
+      });
+    } catch (error) {
+      console.error("Direct access error:", error);
+      toast({
+        title: "Action Failed",
+        description: "Could not initiate movie download.",
         variant: "destructive"
       });
     } finally {
@@ -54,75 +76,71 @@ export function MovieCard({ movie, isDownloaded = false, onDownload }: MovieCard
     }
   };
 
+  // Use the isSubscribed prop directly
+  const isUserAllowedToDownload = isSubscribed;
+
   return (
     <Card className="overflow-hidden hover:shadow-lg transition-shadow">
-      <div className="aspect-[2/3] relative">
-        {movie.thumbnail_url ? (
-          <img
-            src={movie.thumbnail_url}
-            alt={movie.title}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-            <Play className="h-12 w-12 text-primary/50" />
-          </div>
-        )}
-        {isDownloaded && (
-          <div className="absolute top-2 right-2">
-            <Badge variant="secondary" className="bg-green-500/90 text-white">
-              <CheckCircle className="h-3 w-3 mr-1" />
-              Downloaded
-            </Badge>
-          </div>
-        )}
-      </div>
-      
-      <CardHeader className="pb-3">
-        <CardTitle className="text-lg line-clamp-2">{movie.title}</CardTitle>
-        <CardDescription className="space-y-2">
-          <div className="flex items-center gap-4 text-sm">
-            <div className="flex items-center gap-1">
-              <User className="h-3 w-3" />
-              <span>{movie.vj}</span>
+      {/* This Link wraps the image and header, making them clickable for navigation */}
+      <Link to={`/movies/${movie.id}`} className="block">
+        <div className="aspect-[2/3] relative">
+          {fullThumbnailUrl ? (
+            <img
+              src={fullThumbnailUrl}
+              alt={`${movie.title} thumbnail`}
+              className="w-full h-full object-cover rounded-t-lg"
+              onError={(e) => {
+                e.currentTarget.src = '/placeholder.png';
+                e.currentTarget.alt = 'Thumbnail not available';
+                console.error(`Failed to load thumbnail for ${movie.title}: ${fullThumbnailUrl} (attempted URL)`);
+              }}
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center rounded-t-lg">
+              <Play className="h-12 w-12 text-primary/50" />
             </div>
-            <div className="flex items-center gap-1">
-              <Globe className="h-3 w-3" />
-              <span>{movie.language}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-4 text-sm">
-            <div className="flex items-center gap-1">
-              <HardDrive className="h-3 w-3" />
-              <span>{movie.size}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Calendar className="h-3 w-3" />
-              <span>{new Date(movie.created_at).toLocaleDateString()}</span>
-            </div>
-          </div>
-        </CardDescription>
-      </CardHeader>
-      
-      <CardContent className="pt-0">
-        <div className="flex items-center justify-between mb-3">
-          <Badge variant="outline">{movie.category}</Badge>
+          )}
         </div>
-        
-        {isDownloaded ? (
-          <Button disabled className="w-full">
-            <CheckCircle className="h-4 w-4 mr-2" />
-            Already Downloaded
-          </Button>
-        ) : (
+
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg line-clamp-2">{movie.title}</CardTitle>
+          <div className="flex items-center gap-4 text-sm text-muted-foreground mb-1">
+              {movie.vj && (
+                  <span className="flex items-center gap-1">
+                      <User className="h-3 w-3" />
+                      <span>{movie.vj}</span>
+                  </span>
+              )}
+              <span className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  <span>
+                      {movie.created_at && !isNaN(new Date(movie.created_at).getTime())
+                          ? new Date(movie.created_at).toLocaleDateString()
+                          : "Invalid Date"}
+                  </span>
+              </span>
+          </div>
+          {movie.category && <Badge variant="secondary" className="mr-auto">{movie.category}</Badge>}
+        </CardHeader>
+      </Link>
+
+      <CardContent className="pt-0">
+        {isUserAllowedToDownload ? (
           <Button
             onClick={handleDownload}
-            disabled={isDownloading}
+            disabled={isDownloading || !movie.file_url}
             className="w-full"
           >
             <Download className="h-4 w-4 mr-2" />
-            {isDownloading ? "Downloading..." : "Download"}
+            {isDownloading ? "Initiating Download..." : "Download Now"}
           </Button>
+        ) : (
+          <Link to="/subscription" className="w-full">
+            <Button className="w-full">
+              <Crown className="h-4 w-4 mr-2" />
+              Subscribe to Download
+            </Button>
+          </Link>
         )}
       </CardContent>
     </Card>

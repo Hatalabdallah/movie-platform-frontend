@@ -1,3 +1,4 @@
+// movie-platform-frontend/src/pages/Login.tsx
 
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -6,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Play, Eye, EyeOff } from "lucide-react";
+import { Film, Eye, EyeOff } from "lucide-react"; // Changed Play to Film
 import { useToast } from "@/hooks/use-toast";
 
 const Login = () => {
@@ -23,16 +24,33 @@ const Login = () => {
     setLoading(true);
 
     try {
-      await login(email, password);
-      toast({
-        title: "Welcome back!",
-        description: "You have successfully logged in.",
-      });
-      navigate("/dashboard");
+      const loggedInUser = await login(email, password);
+      
+      if (loggedInUser) {
+        toast({
+          title: "Welcome back!",
+          description: "You have successfully logged in.",
+        });
+
+        if (loggedInUser.isAdmin) {
+          navigate("/admin");
+        } else {
+          navigate("/dashboard");
+        }
+      } else {
+        // The toast for failed login is already handled inside AuthContext now
+        // This block will execute if login returns null (i.e., fails)
+        toast({
+          title: "Login failed", // Re-adding a generic toast here in case AuthContext doesn't toast
+          description: "Please check your credentials and try again.",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
+      console.error("Login component error:", error);
       toast({
         title: "Login failed",
-        description: "Please check your credentials and try again.",
+        description: "An unexpected error occurred. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -45,8 +63,8 @@ const Login = () => {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex items-center justify-center space-x-2 mb-4">
-            <Play className="h-8 w-8 text-primary" />
-            <span className="text-2xl font-bold">MovieFlix Pro</span>
+            <Film className="h-8 w-8 text-primary" /> {/* Changed Play to Film */}
+            <span className="text-2xl font-bold">Ronnie's Ent</span>
           </div>
           <CardTitle className="text-2xl">Welcome Back</CardTitle>
           <CardDescription>
