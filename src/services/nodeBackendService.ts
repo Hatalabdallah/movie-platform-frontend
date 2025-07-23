@@ -1,80 +1,84 @@
 // movie-platform-frontend/src/services/nodeBackendService.ts
 
-import axios, { AxiosProgressEvent } from 'axios'; // Import AxiosProgressEvent directly from axios
-import { getToken } from '@/lib/utils/auth';
-import { v4 as uuidv4 } from 'uuid'; // Import uuidv4 for generating device IDs
+import axios, { AxiosProgressEvent } from 'axios';
+// Removed specific imports for getToken and uuidv4 as apiClient handles auth and deviceId is managed by AuthContext
 
-export const API_BASE_URL = import.meta.env.VITE_NODE_BACKEND_URL || 'http://localhost:3001/api';
-// Get frontend URL for DPO redirects
-export const FRONTEND_BASE_URL = import.meta.env.VITE_FRONTEND_URL || 'http://localhost:8080';
-
+// Define your API base URL
+// CORRECTED: Changed default API_BASE_URL to match backend's port 3001
+export const API_BASE_URL = import.meta.env.VITE_NODE_BACKEND_API_URL || 'http://localhost:3001/api';
+export const FRONTEND_BASE_URL = import.meta.env.VITE_FRONTEND_BASE_URL || 'http://localhost:3000';
+export const CLOUDFRONT_DOMAIN = import.meta.env.VITE_CLOUDFRONT_DOMAIN || ''; // Ensure CloudFront domain is available
 
 if (!API_BASE_URL) {
-  console.error("VITE_NODE_BACKEND_URL is not defined in .env. Please check your .env file.");
+  console.error("VITE_NODE_BACKEND_API_URL is not defined in .env. Please check your .env file.");
 }
 
-// Define interfaces to match your Node.js backend's PostgreSQL schema and API responses
+const devLog = (...args: any[]) => {
+  if (import.meta.env.DEV) {
+    console.log(...args);
+  }
+};
+
+// --- INTERFACES ---
 export interface Movie {
   id: string;
   title: string;
-  description?: string | null;
+  description: string | null; // Changed to match backend's nullable description
   vj: string;
   category: string;
-  thumbnail_url?: string | null;
-  file_url: string;
-  created_at: string; // This is the only timestamp now
-  size?: number; // Added for backend movie size
+  thumbnail_url: string | null; // This should now be a full CloudFront URL
+  s3_key: string | null; // The S3 key for the main movie file (can be null if not yet uploaded)
+  created_at: string;
+  size: number | null; // Size in bytes (can be null)
 }
 
-// Profile interface for admin view (might still contain is_subscribed, subscription_plan for admin convenience)
 export interface Profile {
   id: string;
   email: string;
-  fullName?: string | null; // Changed from full_name to fullName for consistency
-  is_admin: boolean;
-  created_at: string; // ISO string
+  fullName: string | null;
+  isAdmin: boolean; // Changed from is_admin to isAdmin for consistency with UserProfileResponse
+  createdAt: string;
   phone?: string | null;
-  // These are for admin view, backend might still return them even if derived
-  is_subscribed?: boolean;
-  subscription_plan?: string;
-  subscription_end_date?: string | null; // Added for admin view to show end date
+  isSubscribed?: boolean; // Changed from is_subscribed to isSubscribed
+  subscriptionPlan?: string; // Changed from subscription_plan to subscriptionPlan
+  subscription_end_date?: string | null;
 }
 
-// Interface for the user profile response from /api/users/me/profile and update
-// This interface defines the CAMELCASE structure expected by the FRONTEND
 export interface UserProfileResponse {
   id: string;
   email: string;
   fullName: string | null;
   isAdmin: boolean;
-  isSubscribed: boolean; // Derived from subscriptions table
-  subscriptionPlan: string; // Derived from subscriptions table, e.g., 'none', 'Basic', 'Premium'
-  deviceIDs: string[]; // Or whatever type device IDs are
+  isSubscribed: boolean;
+  subscriptionPlan: string;
+  deviceIDs: string[];
   createdAt: string;
   updatedAt: string;
+  phone?: string | null;
+  subscription_end_date?: string | null;
 }
 
-// Interface for the user download stats response from /api/users/me/download-stats
 export interface UserDownloadStatsResponse {
+  summary: {
+    totalMoviesDownloaded: number;
+    totalStorageUsed: string;
+    lastDownloadDate: string | null;
+  };
   detailedDownloads: Array<{
     movieId: string;
     movieTitle: string;
-    thumbnailUrl: string;
-    movieSize: number; // in bytes
+    thumbnailUrl: string | null; // Changed to string | null
+    movieSize: number;
     downloadCount: number;
-    lastDownloadDate: string; // ISO string
+    lastDownloadDate: string;
   }>;
-  summary: {
-    totalMoviesDownloaded: number;
-    totalStorageUsed: string; // e.g., "24.5 GB"
-    lastDownloadDate: string | null; // ISO string or null
-  };
 }
 
 export interface Analytics {
   totalDownloads: number;
   totalSubscribers: number;
   newSubscribersThisWeek: number;
+  totalMovies: number; // For Admin Dashboard Overview
 }
 
 export interface DownloadStat {
@@ -83,76 +87,89 @@ export interface DownloadStat {
   download_count: number;
 }
 
-// Interface for Subscription Plans from the backend
 export interface SubscriptionPlan {
   id: string;
   plan_name: string;
-  price_ugx: string; // Using string as DECIMAL from DB might come as string
+  price_ugx: string;
   duration_days: number;
-  duration_unit: string; // e.g., 'week', 'month', 'year'
+  duration_unit: 'day' | 'week' | 'month' | 'year'; // Specific types
   description: string;
-  features: string[]; // Array of strings for benefits
-  is_active: boolean; // For admin to enable/disable
-  display_order: number; // For sorting on frontend
+  features: string[];
+  is_active: boolean;
+  display_order: number;
   created_at: string;
   updated_at: string;
 }
 
-// NEW: Interface for creating/updating a subscription plan (payload)
 export interface SubscriptionPlanPayload {
   plan_name: string;
   price_ugx: string;
   duration_days: number;
-  duration_unit: string;
+  duration_unit: 'day' | 'week' | 'month' | 'year'; // Specific types
   description: string;
   features: string[];
   is_active: boolean;
   display_order: number;
 }
 
-// Extend the UploadMovieData interface to include the file types
-export interface UploadMovieData {
+export interface GetPresignedUploadUrlRequest {
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  folder?: 'movies' | 'thumbnails'; // Specific types for folders
+}
+
+export interface GetPresignedUploadUrlResponse {
+  presignedUrl: string;
+  s3Key: string; // The key (path) in S3/Wasabi to store in DB
+}
+
+// Renamed from UploadMovieData to MovieMetadataPayload for clarity
+export interface MovieMetadataPayload {
   title: string;
   description: string | null;
   vj: string;
   category: string;
-  movieFile: File; // Changed to single File for individual upload calls
-  thumbnailFile: File | null;
+  movieS3Key: string; // The S3 key after direct upload
+  thumbnailS3Key: string | null; // The S3 key after direct upload
+  size: number; // The size of the movie file
 }
 
-// NEW: Interfaces for DPO Payment
+export interface GetPresignedDownloadUrlResponse {
+  downloadUrl: string; // The signed CloudFront URL
+}
+
 export interface InitiatePaymentRequest {
   subscription_plan_id: string;
   amount: number;
   currency: string;
   description: string;
-  client_redirect_url: string; // URL where DPO redirects user after successful payment
-  client_back_url: string;     // URL where DPO redirects user after cancelled payment
+  client_redirect_url: string;
+  client_back_url: string;
+  selected_payment_method: string;
 }
 
 export interface InitiatePaymentResponse {
   message: string;
-  redirect_url: string; // DPO's payment URL to redirect the user to
-  transaction_id: string; // Your internal transaction ID
-  dpo_token: string;      // DPO's transaction token
+  redirect_url: string;
+  transaction_id: string;
+  dpo_token: string;
 }
 
 export interface VerifyPaymentResponse {
   message: string;
-  status: 'successful' | 'failed';
-  dpoResponse: string; // Raw XML response from DPO for verification
+  status: 'successful' | 'failed' | 'pending'; // Added 'pending' status
+  dpoResponse?: string; // Made optional
 }
 
-// NEW: Interface for Admin Subscription Management Request
 export interface AdminManageSubscriptionRequest {
   action: 'activate_extend' | 'deactivate';
-  subscription_plan_id?: string; // Required for 'activate_extend'
+  subscription_plan_id?: string;
 }
 
-// NEW: Interface for Admin Subscription Management Response
 export interface AdminManageSubscriptionResponse {
   message: string;
-  subscription?: { // Optional, depending on action
+  subscription?: {
     id: string;
     user_id: string;
     plan_id: string;
@@ -163,468 +180,281 @@ export interface AdminManageSubscriptionResponse {
     created_at: string;
     updated_at: string;
   };
-  deactivatedSubscriptions?: Array<{ // Optional, for 'deactivate' action
+  deactivatedSubscriptions?: Array<{
     id: string;
     user_id: string;
     status: string;
   }>;
 }
 
+// --- AXIOS CLIENT SETUP ---
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 300000, // General timeout for most requests (5 minutes)
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
 
-const getAuthHeaders = () => {
-  const token = getToken();
-  if (!token) {
-    throw new Error("Authentication token not found. Please log in.");
+// Request interceptor to add Authorization token
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('jwt_token'); // Use 'jwt_token' as per AuthContext
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
   }
-  return {
-    'Authorization': `Bearer ${token}`,
-    'Content-Type': 'application/json', // Added for JSON payloads
-  };
-};
+);
 
-// Helper function to get or generate a device ID
-const getDeviceId = (): string => {
-  let deviceId = localStorage.getItem('deviceId');
-  if (!deviceId) {
-    deviceId = uuidv4();
-    localStorage.setItem('deviceId', deviceId);
+// Response interceptor to handle token expiration or invalidity
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('jwt_token'); // Use 'jwt_token'
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
   }
-  return deviceId;
-};
+);
 
+// Removed getAuthHeaders and getDeviceId as apiClient interceptors handle auth
+// and deviceId should be managed by AuthContext or app's entry point.
 
 export const nodeBackendService = {
-  API_BASE_URL, // Export API_BASE_URL for use in other modules
-  FRONTEND_BASE_URL, // Export FRONTEND_BASE_URL for use in other modules
+  API_BASE_URL,
+  FRONTEND_BASE_URL,
+  CLOUDFRONT_DOMAIN, // Export CloudFront domain
 
-  // Login function now sends currentDeviceId
-  async login(email: string, password: string): Promise<{ token: string; user: UserProfileResponse }> {
+  // --- AUTHENTICATION ---
+  async login(email: string, password: string, deviceId: string): Promise<{ token: string; user: UserProfileResponse }> {
     try {
-      const currentDeviceId = getDeviceId(); // Get existing or generate new
-
-      console.log('Sending login request with:', { email, password, currentDeviceId }); // Log what's being sent
-
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, currentDeviceId }), // Send device ID
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      // Backend now directly returns UserProfileResponse (camelCase)
-      return { token: data.token, user: data.user };
+      devLog('Sending login request with:', { email, password: '[REDACTED]', deviceId });
+      const response = await apiClient.post('/auth/login', { email, password, currentDeviceId: deviceId });
+      return response.data;
     } catch (error) {
       console.error("Error during login via service:", error);
       throw error;
     }
   },
 
-  // Register function now sends a generated deviceId
-  async register(email: string, password: string, fullName: string): Promise<{ token: string; user: UserProfileResponse }> {
+  async register(email: string, password: string, fullName: string, deviceId: string): Promise<{ token: string; user: UserProfileResponse }> {
     try {
-      const currentDeviceId = getDeviceId(); // Get existing or generate new
-
-      console.log('Sending registration request with:', { email, password, fullName, currentDeviceId }); // Log what's being sent
-
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, fullName, currentDeviceId }), // Send device ID
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      // Backend now directly returns UserProfileResponse (camelCase)
-      return { token: data.token, user: data.user };
+      devLog('Sending registration request with:', { email, password: '[REDACTED]', fullName, deviceId });
+      const response = await apiClient.post('/auth/register', { email, password, fullName, currentDeviceId: deviceId });
+      return response.data;
     } catch (error) {
       console.error("Error during registration via service:", error);
       throw error;
     }
   },
 
-  async getMovies(): Promise<Movie[]> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/movies`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data: Movie[] = await response.json();
-      return data;
-    } catch (error) {
-      console.error("Error fetching movies from Node.js backend:", error);
-      throw error;
-    }
+  async logout(): Promise<any> {
+    const response = await apiClient.post('/auth/logout');
+    return response.data;
   },
-  async getMovieById(id: string): Promise<Movie> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/movies/${id}`);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: Movie = await response.json();
-      return data;
-    } catch (error) {
-      console.error(`Error fetching movie ${id} from Node.js backend:`, error);
-      throw error;
-    }
-  },
-  async getAllMovies(): Promise<Movie[]> {
-    try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/admin/movies`, { headers });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: Movie[] = await response.json();
-      return data;
-    } catch (error) {
-      console.error("Error fetching all movies for admin from Node.js backend:", error);
-      throw error;
-    }
-  },
-  // Modified uploadMovie to handle a single movie file and its progress
-  async uploadMovie(
-    data: UploadMovieData,
-    onUploadProgress?: (progressEvent: AxiosProgressEvent) => void
-  ): Promise<Movie> {
-    const token = getToken();
-    if (!token) {
-      throw new Error("Authentication token not found. Please log in.");
-    }
 
-    const formData = new FormData();
-    formData.append("title", data.title);
-    if (data.description) {
-      formData.append("description", data.description);
-    }
-    formData.append("vj", data.vj);
-    formData.append("category", data.category);
-    formData.append("movieFile", data.movieFile); // Append single movie file
-    if (data.thumbnailFile) {
-      formData.append("thumbnailFile", data.thumbnailFile);
-    }
-
-    try {
-      const response = await axios.post(`${API_BASE_URL}/admin/movies`, formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data',
-        },
-        onUploadProgress: onUploadProgress,
-        timeout: 600000, // 10 minutes timeout for large files
-      });
-      return response.data;
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response) {
-        throw new Error(error.response.data.message || `Failed to upload movie: ${error.message}`);
-      }
-      throw error;
-    }
-  },
-  async deleteMovie(id: string): Promise<{ message: string }> {
-    try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/admin/movies/${id}`, {
-        method: 'DELETE',
-        headers,
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: { message: string } = await response.json();
-      return data;
-    } catch (error) {
-      console.error(`Error deleting movie ${id} from Node.js backend:`, error);
-      throw error;
-    }
-  },
-  async getAllSubscribers(): Promise<Profile[]> {
-    try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/admin/subscribers`, { headers });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      // The backend now returns `is_subscribed` and `subscription_plan` directly in the Profile
-      const data: Profile[] = await response.json();
-      return data;
-    } catch (error) {
-      console.error("Error fetching all subscribers for admin from Node.js backend:", error);
-      throw error;
-    }
-  },
-  async deleteSubscriber(userId: string): Promise<{ message: string }> {
-    try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/admin/subscribers/${userId}`, {
-        method: 'DELETE',
-        headers,
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: { message: string } = await response.json();
-      return data;
-    } catch (error) {
-      console.error(`Error deleting subscriber ${userId} from Node.js backend:`, error);
-      throw error;
-    }
-  },
-  // Removed old updateUserSubscriptionAdmin as it was directly setting flags on 'users' table.
-  // The new manageSubscriptionAdmin function will interact with the 'subscriptions' table.
-  // async updateUserSubscriptionAdmin(
-  //   userId: string,
-  //   isSubscribed: boolean,
-  //   subscriptionPlan: string
-  // ): Promise<Profile> {
-  //   try {
-  //     const headers = getAuthHeaders();
-  //     const response = await fetch(`${API_BASE_URL}/admin/subscribers/${userId}/subscription`, {
-  //       method: 'PUT',
-  //       headers,
-  //       body: JSON.stringify({ isSubscribed, subscriptionPlan }),
-  //     });
-  //     if (!response.ok) {
-  //       const errorData = await response.json();
-  //       throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-  //     }
-  //     const data = await response.json();
-  //     return data.user;
-  //   } catch (error) {
-  //     console.error(`Error updating subscription for user ${userId}:`, error);
-  //     throw error;
-  //   }
-  // },
-  async getPlatformAnalytics(): Promise<Analytics> {
-    try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/admin/analytics`, { headers });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: Analytics = await response.json();
-      return data;
-    } catch (error) {
-      console.error("Error fetching platform analytics from Node.js backend:", error);
-      throw error;
-    }
-  },
-  // NOTE: This function likely fetches admin-level stats, not user's personal stats
-  async getMovieDownloadStats(): Promise<DownloadStat[]> {
-    try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/admin/download-stats`, { headers });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: DownloadStat[] = await response.json();
-      return data;
-    } catch (error) {
-      console.error("Error fetching movie download stats from Node.js backend:", error);
-      throw error;
-    }
-  },
+  // --- USER PROFILE ---
   async getUserProfile(): Promise<UserProfileResponse> {
     try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/auth/profile`, { headers }); // Changed to /auth/profile
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: UserProfileResponse = await response.json();
-      // Backend /auth/profile now returns UserProfileResponse directly, no need for extensive mapping here
-      // The backend is responsible for returning camelCase and derived status
-      return data;
+      const response = await apiClient.get('/users/me/profile');
+      return response.data;
     } catch (error) {
       console.error("Error fetching user profile:", error);
       throw error;
     }
   },
-  async getUserDownloadStats(): Promise<UserDownloadStatsResponse> {
+
+  async updateUserProfile(payload: { fullName?: string; email?: string; phone?: string }): Promise<UserProfileResponse> {
     try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/users/me/download-stats`, { headers });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: UserDownloadStatsResponse = await response.json();
-      return data;
-    } catch (error) {
-      console.error("Error fetching user download statistics:", error);
-      throw error;
-    }
-  },
-  // Function to update user profile (full_name, email)
-  async updateUserProfile(payload: { fullName?: string; email?: string }): Promise<UserProfileResponse> {
-    try {
-      const headers = getAuthHeaders(); // Includes 'Content-Type': 'application/json' now
-      const response = await fetch(`${API_BASE_URL}/users/profile`, {
-        method: 'PUT',
-        headers: headers, // Pass the headers including Content-Type
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      // The backend /users/profile PUT route returns a 'user' object within a 'message' object
-      const data = await response.json();
-      // Assuming the backend returns the updated user profile directly or within a 'user' property
-      const user: UserProfileResponse = data.user || data; // Handle cases where 'user' might be direct or nested
+      const response = await apiClient.put('/users/profile', payload);
+      const data = response.data;
+      const user: UserProfileResponse = data.user || data; // Backend might return {message, user} or just user
       return user;
     } catch (error) {
       console.error("Error updating user profile:", error);
       throw error;
     }
   },
+
   async changeUserPassword(currentPassword: string, newPassword: string): Promise<{ message: string }> {
     try {
-      const headers = getAuthHeaders(); // Includes 'Content-Type': 'application/json'
-      const response = await fetch(`${API_BASE_URL}/users/change-password`, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: { message: string } = await response.json();
-      return data;
+      const response = await apiClient.post('/users/change-password', { currentPassword, newPassword });
+      return response.data;
     } catch (error) {
       console.error("Error changing user password:", error);
       throw error;
     }
   },
-  // Original checkSubscription - kept for reference, but getUserProfile should now be preferred for dashboard status
-  async checkSubscription(userId: string): Promise<{ isSubscribed: boolean, subscriptionTier?: string }> {
+
+  async getUserDownloadStats(): Promise<UserDownloadStatsResponse> {
     try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/users/${userId}/subscription-status`, { headers });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      return data;
+      const response = await apiClient.get('/users/me/download-stats');
+      return response.data;
     } catch (error) {
-      console.error("Error checking subscription status:", error);
+      console.error("Error fetching user download statistics:", error);
       throw error;
     }
   },
-  // Function to fetch all active subscription plans (public view)
+
+  // --- MOVIES (PUBLIC & ADMIN) ---
+  async getMovies(): Promise<Movie[]> {
+    try {
+      const response = await apiClient.get('/movies');
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching movies from Node.js backend:", error);
+      throw error;
+    }
+  },
+
+  async getMovieById(id: string): Promise<Movie> {
+    try {
+      const response = await apiClient.get(`/movies/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error fetching movie ${id} from Node.js backend:`, error);
+      throw error;
+    }
+  },
+
+  async getAllMovies(): Promise<Movie[]> {
+    try {
+      const response = await apiClient.get('/admin/movies');
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching all movies for admin from Node.js backend:", error);
+      throw error;
+    }
+  },
+
+  async getPresignedUploadUrl(request: GetPresignedUploadUrlRequest): Promise<GetPresignedUploadUrlResponse> {
+    try {
+      const response = await apiClient.post('/admin/movies/generate-upload-url', request);
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        throw new Error(error.response.data.message || `Failed to get pre-signed upload URL: ${error.message}`);
+      }
+      throw error;
+    }
+  },
+
+  async uploadFileToS3(presignedUrl: string, file: File, onUploadProgress?: (progressEvent: AxiosProgressEvent) => void): Promise<void> {
+    try {
+      await axios.put(presignedUrl, file, {
+        headers: {
+          'Content-Type': file.type,
+        },
+        onUploadProgress: onUploadProgress,
+        timeout: 600000, // 10 minutes timeout for direct S3 upload
+      });
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        throw new Error(error.response.data.message || `Failed to upload file directly to S3: ${error.message}`);
+      }
+      throw error;
+    }
+  },
+
+  // Renamed from UploadMovieData to MovieMetadataPayload for clarity
+  async saveMovieMetadata(data: MovieMetadataPayload): Promise<Movie> {
+    try {
+      const response = await apiClient.post('/admin/movies', data, {
+        timeout: 60000, // 1 minute timeout for metadata save
+      });
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        throw new Error(error.response.data.message || `Failed to record movie metadata: ${error.message}`);
+      }
+      throw error;
+    }
+  },
+
+  async deleteMovie(id: string): Promise<{ message: string }> {
+    try {
+      const response = await apiClient.delete(`/admin/movies/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error deleting movie ${id} from Node.js backend:`, error);
+      throw error;
+    }
+  },
+
+  async getPresignedDownloadUrl(movieS3Key: string): Promise<GetPresignedDownloadUrlResponse> {
+    try {
+      const response = await apiClient.post('/users/movies/generate-download-url', { s3Key: movieS3Key });
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        throw new Error(error.response.data.message || `Failed to get pre-signed download URL: ${error.message}`);
+      }
+      throw error;
+    }
+  },
+
+  // --- SUBSCRIPTION PLANS ---
   async getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
     try {
-      // No auth headers needed as this is a public endpoint
-      const response = await fetch(`${API_BASE_URL}/users/subscription-plans`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data: SubscriptionPlan[] = await response.json();
-      return data;
+      const response = await apiClient.get('/users/subscription-plans'); // Corrected path to /users/subscription-plans
+      return response.data;
     } catch (error) {
       console.error("Error fetching subscription plans:", error);
       throw error;
     }
   },
-  // NEW ADMIN FUNCTIONS FOR SUBSCRIPTION PLANS
-  // Admin function to fetch ALL subscription plans (including inactive ones)
+
   async getAllSubscriptionPlansAdmin(): Promise<SubscriptionPlan[]> {
     try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/admin/subscription-plans`, { headers });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: SubscriptionPlan[] = await response.json();
-      return data;
+      const response = await apiClient.get('/admin/subscription-plans');
+      return response.data;
     } catch (error) {
       console.error("Error fetching all subscription plans for admin:", error);
       throw error;
     }
   },
-  // Admin function to create a new subscription plan
+
   async createSubscriptionPlan(payload: SubscriptionPlanPayload): Promise<SubscriptionPlan> {
     try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/admin/subscription-plans`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: SubscriptionPlan = await response.json();
-      return data;
+      const response = await apiClient.post('/admin/subscription-plans', payload);
+      return response.data;
     } catch (error) {
       console.error("Error creating subscription plan:", error);
       throw error;
     }
   },
-  // Admin function to update an existing subscription plan
+
   async updateSubscriptionPlan(id: string, payload: Partial<SubscriptionPlanPayload>): Promise<SubscriptionPlan> {
     try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/admin/subscription-plans/${id}`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: SubscriptionPlan = await response.json();
-      return data;
+      const response = await apiClient.put(`/admin/subscription-plans/${id}`, payload);
+      return response.data;
     } catch (error) {
       console.error(`Error updating subscription plan ${id}:`, error);
       throw error;
     }
   },
-  // Admin function to delete a subscription plan
+
   async deleteSubscriptionPlan(id: string): Promise<{ message: string }> {
     try {
-      const headers = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/admin/subscription-plans/${id}`, {
-        method: 'DELETE',
-        headers,
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data: { message: string } = await response.json();
-      return data;
+      const response = await apiClient.delete(`/admin/subscription-plans/${id}`);
+      return response.data;
     } catch (error) {
       console.error(`Error deleting subscription plan ${id}:`, error);
       throw error;
     }
   },
 
-  // NEW DPO PAYMENT FUNCTIONS
+  // --- DPO PAYMENT INTEGRATION ---
   async initiateDPOPayment(
     payload: InitiatePaymentRequest
   ): Promise<InitiatePaymentResponse> {
     try {
-      const headers = getAuthHeaders();
-      const response = await axios.post(`${API_BASE_URL}/payments/initiate`, payload, { headers });
+      const response = await apiClient.post('/payments/initiate', payload);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response) {
@@ -634,11 +464,9 @@ export const nodeBackendService = {
     }
   },
 
-  async verifyDPOPayment(dpoToken: string): Promise<VerifyPaymentResponse> {
+  async verifyDPOPayment(ptrId: string): Promise<VerifyPaymentResponse> {
     try {
-      const headers = getAuthHeaders();
-      // DPO redirects with Ptrid, which is our dpo_token
-      const response = await axios.get(`${API_BASE_URL}/payments/verify?Ptrid=${dpoToken}`, { headers });
+      const response = await apiClient.get(`/payments/verify?Ptrid=${ptrId}`);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response) {
@@ -648,20 +476,59 @@ export const nodeBackendService = {
     }
   },
 
-  // NEW: Admin function to manage user subscriptions via the 'subscriptions' table
+  // --- ADMIN SUBSCRIBERS ---
+  async getAllSubscribers(): Promise<Profile[]> {
+    try {
+      const response = await apiClient.get('/admin/subscribers');
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching all subscribers for admin from Node.js backend:", error);
+      throw error;
+    }
+  },
+
+  async deleteSubscriber(userId: string): Promise<{ message: string }> {
+    try {
+      const response = await apiClient.delete(`/admin/subscribers/${userId}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error deleting subscriber ${userId} from Node.js backend:`, error);
+      throw error;
+    }
+  },
+
   async adminManageUserSubscription(
     userId: string,
     payload: AdminManageSubscriptionRequest
   ): Promise<AdminManageSubscriptionResponse> {
     try {
-      const headers = getAuthHeaders();
-      const response = await axios.put(`${API_BASE_URL}/admin/subscribers/${userId}/manage-subscription`, payload, { headers });
+      const response = await apiClient.put(`/admin/subscribers/${userId}/manage-subscription`, payload);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response) {
-        // The backend might send a specific error message, use that
         throw new Error(error.response.data.message || `Failed to manage subscription: ${error.message}`);
       }
+      throw error;
+    }
+  },
+
+  // --- ANALYTICS ---
+  async getPlatformAnalytics(): Promise<Analytics> {
+    try {
+      const response = await apiClient.get('/admin/analytics');
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching platform analytics from Node.js backend:", error);
+      throw error;
+    }
+  },
+
+  async getMovieDownloadStats(): Promise<DownloadStat[]> {
+    try {
+      const response = await apiClient.get('/admin/download-stats');
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching movie download stats from Node.js backend:", error);
       throw error;
     }
   },

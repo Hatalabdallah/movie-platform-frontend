@@ -120,11 +120,6 @@ const Login = () => {
               Sign up
             </Link>
           </div>
-          <div className="mt-4 text-center text-xs text-muted-foreground">
-            <p>Test accounts:</p>
-            <p>Admin: admin@movieflix.com / password</p>
-            <p>User: user@test.com / password</p>
-          </div>
         </CardContent>
       </Card>
     </div>

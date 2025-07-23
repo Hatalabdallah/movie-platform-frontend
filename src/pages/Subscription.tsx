@@ -1,22 +1,26 @@
 // movie-platform-frontend/src/pages/Subscription.tsx
 
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate, Link, useSearchParams } from "react-router-dom"; // Added useSearchParams
-import { useEffect, useState } from "react"; // Added useState
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Film, Check, Crown, Zap, Star, LogOut, Loader2 } from "lucide-react"; // Changed Play to Film, Added Loader2 for loading state
-import { useQuery, useMutation } from "@tanstack/react-query"; // Import useQuery, useMutation
-import { nodeBackendService, SubscriptionPlan, InitiatePaymentRequest, VerifyPaymentResponse } from "@/services/nodeBackendService"; // Import nodeBackendService, SubscriptionPlan, and new DPO payment interfaces
-import { useToast } from "@/components/ui/use-toast"; // For displaying errors
+import { Film, Check, Crown, Zap, Star, LogOut, Loader2, Sun, Moon } from "lucide-react"; // Added Sun and Moon
+import { useQuery } from "@tanstack/react-query";
+import { nodeBackendService, SubscriptionPlan } from "@/services/nodeBackendService";
+import { useToast } from "@/components/ui/use-toast";
+import { useTheme } from '@/contexts/ThemeContext'; // Import useTheme
 
 const Subscription = () => {
-  const { user, logout, checkUserProfile } = useAuth(); // Added checkUserProfile to refresh user data
+  const { user, logout, checkUserProfile } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast(); // Initialize useToast
-  const [searchParams] = useSearchParams(); // To read DPO redirect parameters
-  const [isPaymentProcessing, setIsPaymentProcessing] = useState(false); // New state for payment processing
+  const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
+
+  const { theme, toggleTheme } = useTheme(); // Initialize useTheme
+  const currentYear = new Date().getFullYear(); // Get the current year dynamically
 
   useEffect(() => {
     if (!user) {
@@ -29,16 +33,13 @@ const Subscription = () => {
     navigate("/");
   };
 
-  // Use react-query to fetch subscription plans
   const { data: plans, isLoading, error } = useQuery<SubscriptionPlan[], Error>({
-    queryKey: ['subscriptionPlans'], // Unique key for this query
-    queryFn: nodeBackendService.getSubscriptionPlans, // Function to fetch data
-    staleTime: 5 * 60 * 1000, // Data is considered fresh for 5 minutes
-    gcTime: 10 * 60 * 1000, // Data stays in cache for 10 minutes (was cacheTime)
-    // Removed onError from here as it's not a direct option in recent React Query versions for useQuery
+    queryKey: ['subscriptionPlans'],
+    queryFn: nodeBackendService.getSubscriptionPlans,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   });
 
-  // Handle errors for subscription plans using useEffect
   useEffect(() => {
     if (error) {
       console.error("Error fetching subscription plans:", error);
@@ -50,95 +51,15 @@ const Subscription = () => {
     }
   }, [error, toast]);
 
-  // Mutation for DPO payment initiation
-  const initiatePaymentMutation = useMutation({
-    mutationFn: (payload: InitiatePaymentRequest) =>
-      nodeBackendService.initiateDPOPayment(payload),
-    onMutate: () => {
-      setIsPaymentProcessing(true);
-      toast({
-        title: "Initiating Payment",
-        description: "Redirecting to DPO payment page...",
-        duration: 5000,
-      });
-    },
-    onSuccess: (data) => {
-      // Redirect user to DPO's payment page
-      window.location.href = data.redirect_url;
-    },
-    onError: (err: Error) => {
-      setIsPaymentProcessing(false);
-      console.error("Error initiating payment:", err);
-      toast({
-        title: "Payment Error",
-        description: `Failed to initiate payment: ${err.message}`,
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Effect to handle DPO redirect callback
   useEffect(() => {
-    const dpoToken = searchParams.get('Ptrid'); // DPO's transaction token
-    const paymentStatus = searchParams.get('payment_status'); // Our custom status from redirect URL
+    const dpoToken = searchParams.get('Ptrid');
+    const paymentStatus = searchParams.get('payment_status');
 
-    // Only process if dpoToken exists AND we haven't already processed it in this session
-    // Also, ensure user is logged in before attempting verification
-    if (dpoToken && user && !isPaymentProcessing) {
-      setIsPaymentProcessing(true); // Set processing state to prevent re-triggering
-
-      const verifyPayment = async () => {
-        try {
-          toast({
-            title: "Verifying Payment",
-            description: "Please wait while we confirm your subscription...",
-            duration: 10000,
-          });
-
-          const verificationResponse: VerifyPaymentResponse = await nodeBackendService.verifyDPOPayment(dpoToken);
-
-          if (verificationResponse.status === 'successful') {
-            toast({
-              title: "Subscription Activated!",
-              description: "Your payment was successful and your subscription is now active. Enjoy!",
-              variant: "default",
-            });
-            // Crucial: Refresh user profile in AuthContext to get updated subscription status
-            await checkUserProfile();
-            navigate("/dashboard", { replace: true }); // Redirect to dashboard and remove query params from URL
-          } else {
-            toast({
-              title: "Payment Failed",
-              description: "Your payment could not be verified. Please try again or contact support.",
-              variant: "destructive",
-            });
-            setIsPaymentProcessing(false);
-            navigate("/subscription", { replace: true }); // Remove query params from URL
-          }
-        } catch (err) {
-          console.error("Error during payment verification:", err);
-          toast({
-            title: "Verification Error",
-            description: `An error occurred during payment verification: ${(err as Error).message}. Please contact support.`,
-            variant: "destructive",
-          });
-          setIsPaymentProcessing(false);
-          navigate("/subscription", { replace: true }); // Remove query params from URL
-        }
-      };
-      verifyPayment();
-    } else if (paymentStatus === 'cancelled') {
-        // Handle cases where DPO redirects back with a 'cancelled' status (from client_back_url)
-        toast({
-            title: "Payment Cancelled",
-            description: "You cancelled the payment. You can try again or choose another plan.",
-            variant: "default", // Changed from 'info' to 'default'
-        });
-        // Clear the URL parameters without triggering another verification attempt
-        navigate("/subscription", { replace: true });
+    if (dpoToken || paymentStatus) {
+      const redirectUrl = `/checkout/${searchParams.get('planId') || ''}?${searchParams.toString()}`;
+      navigate(redirectUrl, { replace: true });
     }
-  }, [searchParams, user, navigate, toast, isPaymentProcessing, checkUserProfile]);
-
+  }, [searchParams, navigate]);
 
   const handleChoosePlan = (plan: SubscriptionPlan) => {
     if (!user) {
@@ -150,37 +71,22 @@ const Subscription = () => {
       navigate("/login");
       return;
     }
-
-    // Prepare DPO payment request payload
-    const paymentPayload: InitiatePaymentRequest = {
-      subscription_plan_id: plan.id,
-      amount: parseFloat(plan.price_ugx), // Ensure amount is a number
-      currency: "UGX", // Hardcode currency as per DPO requirements for Uganda
-      description: `Subscription for ${plan.plan_name}`, // Corrected to plan.plan_name
-      // Construct redirect URLs using FRONTEND_BASE_URL. The backend will use these.
-      // Make sure these URLs are publicly accessible.
-      client_redirect_url: `${nodeBackendService.FRONTEND_BASE_URL}/subscription?payment_status=success`, // On success, redirect back here
-      client_back_url: `${nodeBackendService.FRONTEND_BASE_URL}/subscription?payment_status=cancelled`, // On cancel/failure, redirect back here
-    };
-
-    initiatePaymentMutation.mutate(paymentPayload);
+    navigate(`/checkout/${plan.id}`);
   };
 
-  if (!user) return null; // Or show a loading spinner/message
+  if (!user) return null;
 
-  // Show loading state for initial plan fetch or payment processing
-  if (isLoading || isPaymentProcessing || initiatePaymentMutation.isPending) {
+  if (isLoading || isPaymentProcessing) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />
         <span className="ml-3 text-lg">
-          {isPaymentProcessing ? "Processing your payment..." : "Loading plans..."}
+          {isLoading ? "Loading plans..." : "Redirecting to checkout..."}
         </span>
       </div>
     );
   }
 
-  // Show error state for initial plan fetch
   if (error) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background via-background to-muted text-red-500">
@@ -193,15 +99,14 @@ const Subscription = () => {
     );
   }
 
-  // Ensure plans is an array, even if empty or undefined for safety
-  const displayPlans: SubscriptionPlan[] = plans ?? []; // Explicitly type and use nullish coalescing
+  const displayPlans: SubscriptionPlan[] = plans ?? [];
 
   const getPlanIcon = (planName: string) => {
     switch (planName.toLowerCase()) {
-      case 'basic': return Film; // Changed from Play to Film
+      case 'basic': return Film;
       case 'premium': return Crown;
       case 'enterprise': return Star;
-      default: return Zap; // Default icon if no match
+      default: return Zap;
     }
   };
 
@@ -211,10 +116,17 @@ const Subscription = () => {
       <header className="border-b bg-background/80 backdrop-blur-md sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <Link to="/dashboard" className="flex items-center space-x-2">
-            <Film className="h-8 w-8 text-primary" /> {/* Changed Play to Film */}
+            <Film className="h-8 w-8 text-primary" />
             <h1 className="text-2xl font-bold">Ronnie's Ent</h1>
           </Link>
           <div className="flex items-center space-x-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+            >
+              {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
             <Badge variant={user.isSubscribed ? "default" : "secondary"}>
               {user.isSubscribed ? `${user.subscriptionPlan} Member` : "Free Trial"}
             </Badge>
@@ -245,19 +157,16 @@ const Subscription = () => {
             const IconComponent = getPlanIcon(plan.plan_name);
             const isCurrentPlan = user.isSubscribed && user.subscriptionPlan?.toLowerCase() === plan.plan_name.toLowerCase();
             const priceDisplay = `UGX ${parseFloat(plan.price_ugx).toLocaleString('en-UG', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-            const periodDisplay = plan.duration_unit; // e.g., 'week', 'month', 'year'
+            const periodDisplay = plan.duration_unit;
 
-            // Determine if this plan should be marked as "Most Popular"
-            // Changed from 'premium' to 'basic'
-            const isMostPopular = plan.plan_name.toLowerCase() === 'basic'; 
+            const isMostPopular = plan.plan_name.toLowerCase() === 'basic';
 
             return (
               <Card
-                key={plan.id} // Use plan.id as key
-                // Apply border and scale if it's the "Most Popular" plan
+                key={plan.id}
                 className={`relative ${isMostPopular ? 'border-primary border-2 scale-105' : ''} ${isCurrentPlan ? 'ring-2 ring-green-500' : ''}`}
               >
-                {isMostPopular && ( // Show "Most Popular" badge if isMostPopular is true
+                {isMostPopular && (
                   <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
                     <Badge className="bg-primary text-primary-foreground px-4 py-1">
                       Most Popular
@@ -293,13 +202,13 @@ const Subscription = () => {
                     ))}
                   </ul>
                   <Button
-                    className={`w-full ${isMostPopular ? 'bg-primary hover:bg-primary/90' : ''}`} // Apply primary button style if Most Popular
+                    className={`w-full ${isMostPopular ? 'bg-primary hover:bg-primary/90' : ''}`}
                     variant={isMostPopular ? "default" : "outline"}
-                    disabled={isCurrentPlan || initiatePaymentMutation.isPending || isPaymentProcessing}
+                    disabled={isCurrentPlan}
                     onClick={() => handleChoosePlan(plan)}
                   >
                     {isCurrentPlan ? "Current Plan" : `Choose ${plan.plan_name}`}
-                    {isMostPopular && <Zap className="ml-2 h-4 w-4" />} {/* Show Zap icon if Most Popular */}
+                    {isMostPopular && <Zap className="ml-2 h-4 w-4" />}
                   </Button>
                 </CardContent>
               </Card>
@@ -313,7 +222,7 @@ const Subscription = () => {
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="text-center">
               <div className="bg-primary/10 p-4 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                <Film className="h-8 w-8 text-primary" /> {/* Changed Play to Film */}
+                <Film className="h-8 w-8 text-primary" />
               </div>
               <h4 className="font-semibold mb-2">High Quality</h4>
               <p className="text-sm text-muted-foreground">HD and 4K downloads available</p>
@@ -379,6 +288,26 @@ const Subscription = () => {
           </div>
         </div>
       </div>
+      {/* Footer */}
+      <footer className="border-t bg-background py-12 px-4">
+        <div className="container mx-auto text-center">
+          <div className="flex items-center justify-center space-x-2 mb-4">
+            <Film className="h-6 w-6 text-primary" />
+            <span className="text-xl font-semibold">Ronnie's Ent</span>
+          </div>
+          <p className="text-muted-foreground text-sm">
+            © {currentYear} Ronnie's Ent. All Rights Reserved. | Designed by{' '}
+            <a
+              href="https://kyakabi.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              Kyakabi Group
+            </a>
+          </p>
+        </div>
+      </footer>
     </div>
   );
 };

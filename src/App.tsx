@@ -19,6 +19,8 @@ import Movies from "./pages/Movies";
 import MovieDetails from "./pages/MovieDetails";
 import Profile from "./pages/Profile";
 import Subscription from "./pages/Subscription";
+import Checkout from "./pages/Checkout";
+import Terms from "./pages/Terms"; // <--- Import the new Terms component
 import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
 
@@ -37,6 +39,7 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/terms" element={<Terms />} /> {/* <--- New Terms Route (Public) */}
               <Route path="*" element={<NotFound />} /> {/* Catch-all for undefined routes */}
 
               {/* Authenticated Routes - Requires user to be logged in */}
@@ -45,8 +48,8 @@ const App = () => (
                 <Route path="/movies" element={<Movies />} />
                 <Route path="/movies/:id" element={<MovieDetails />} />
                 <Route path="/profile" element={<Profile />} />
-                {/* Subscription page itself might be public, but accessing it may prompt subscription if not subscribed */}
                 <Route path="/subscription" element={<Subscription />} />
+                <Route path="/checkout/:planId" element={<Checkout />} />
               </Route>
 
               {/* Admin Routes - Requires user to be logged in AND an admin */}

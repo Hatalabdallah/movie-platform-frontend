@@ -6,9 +6,10 @@ import { useEffect, useState } from "react"; // Added useState
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play, Download, User, Settings, LogOut, Crown, Film } from "lucide-react";
+import { Download, User, Settings, LogOut, Crown, Film, Sun, Moon } from "lucide-react"; // Added Sun and Moon
 import { Link } from "react-router-dom";
 import { nodeBackendService, UserProfileResponse, UserDownloadStatsResponse } from "@/services/nodeBackendService"; // Import new types and service
+import { useTheme } from '@/contexts/ThemeContext'; // Import useTheme
 
 const Dashboard = () => {
     // Destructure user, logout, and isSubscribed directly from useAuth
@@ -20,6 +21,9 @@ const Dashboard = () => {
     const [downloadStats, setDownloadStats] = useState<UserDownloadStatsResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const { theme, toggleTheme } = useTheme(); // Initialize useTheme
+    const currentYear = new Date().getFullYear(); // Get the current year dynamically
 
     useEffect(() => {
         if (!user) {
@@ -84,10 +88,17 @@ const Dashboard = () => {
             <header className="border-b bg-background/80 backdrop-blur-md sticky top-0 z-50">
                 <div className="container mx-auto px-4 py-4 flex items-center justify-between">
                     <Link to="/" className="flex items-center space-x-2">
-                        <Play className="h-8 w-8 text-primary" />
+                        <Film className="h-8 w-8 text-primary" />
                         <h1 className="text-2xl font-bold">Ronnie's Ent</h1>
                     </Link>
                     <div className="flex items-center space-x-4">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={toggleTheme}
+                        >
+                            {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+                        </Button>
                         {/* Use the isSubscribed from AuthContext directly */}
                         <Badge variant={isSubscribed ? "default" : "secondary"}>
                             {isSubscribed ? `${user.subscriptionPlan || 'Active'} Member` : "Free Trial"}
@@ -228,6 +239,27 @@ const Dashboard = () => {
                     </div>
                 )}
             </div>
+
+            {/* Footer */}
+            <footer className="border-t bg-background py-12 px-4 mt-auto"> {/* Added mt-auto to push footer to bottom */}
+                <div className="container mx-auto text-center">
+                    <div className="flex items-center justify-center space-x-2 mb-4">
+                        <Film className="h-6 w-6 text-primary" />
+                        <span className="text-xl font-semibold">Ronnie's Ent</span>
+                    </div>
+                    <p className="text-muted-foreground text-sm">
+                        © {currentYear} Ronnie's Ent. All Rights Reserved. | Designed by{' '}
+                        <a
+                            href="https://kyakabi.com/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                        >
+                            Kyakabi Group
+                        </a>
+                    </p>
+                </div>
+            </footer>
         </div>
     );
 };

@@ -9,9 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Film, User, Download, Settings, LogOut, Eye, EyeOff, Smartphone } from "lucide-react"; // Changed Play to Film
+import { Film, User, Download, Settings, LogOut, Eye, EyeOff, Smartphone, Sun, Moon } from "lucide-react"; // Changed Play to Film, added Sun/Moon
 import { useToast } from "@/hooks/use-toast";
 import { nodeBackendService, UserProfileResponse, UserDownloadStatsResponse } from "@/services/nodeBackendService"; // Import service and types
+import { useTheme } from '@/contexts/ThemeContext'; // Import useTheme
 
 const Profile = () => {
     const { user, logout } = useAuth(); // Initial user data from AuthContext
@@ -38,6 +39,9 @@ const Profile = () => {
         new: false,
         confirm: false
     });
+
+    const { theme, toggleTheme } = useTheme(); // Initialize useTheme
+    const currentYear = new Date().getFullYear(); // Get the current year dynamically
 
     useEffect(() => {
         if (!user) {
@@ -180,15 +184,22 @@ const Profile = () => {
 
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted">
+        <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted flex flex-col"> {/* Added flex flex-col for footer to stick to bottom */}
             {/* Header */}
             <header className="border-b bg-background/80 backdrop-blur-md sticky top-0 z-50">
                 <div className="container mx-auto px-4 py-4 flex items-center justify-between">
                     <Link to="/dashboard" className="flex items-center space-x-2">
-                        <Film className="h-8 w-8 text-primary" /> {/* Changed Play to Film */}
+                        <Film className="h-8 w-8 text-primary" />
                         <h1 className="text-2xl font-bold">Ronnie's Ent</h1>
                     </Link>
                     <div className="flex items-center space-x-4">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={toggleTheme}
+                        >
+                            {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+                        </Button>
                         <Badge variant={profileData?.isSubscribed ? "default" : "secondary"}>
                             {profileData?.isSubscribed ? `${profileData.subscriptionPlan} Member` : "Free Trial"}
                         </Badge>
@@ -199,7 +210,7 @@ const Profile = () => {
                 </div>
             </header>
 
-            <div className="container mx-auto px-4 py-8">
+            <div className="container mx-auto px-4 py-8 flex-grow"> {/* Added flex-grow to push footer down */}
                 <div className="mb-8">
                     <h2 className="text-3xl font-bold mb-2">My Profile</h2>
                     <p className="text-muted-foreground">
@@ -474,6 +485,27 @@ const Profile = () => {
                     </Tabs>
                 )}
             </div>
+
+            {/* Footer */}
+            <footer className="border-t bg-background py-12 px-4 mt-auto">
+                <div className="container mx-auto text-center">
+                    <div className="flex items-center justify-center space-x-2 mb-4">
+                        <Film className="h-6 w-6 text-primary" />
+                        <span className="text-xl font-semibold">Ronnie's Ent</span>
+                    </div>
+                    <p className="text-muted-foreground text-sm">
+                        © {currentYear} Ronnie's Ent. All Rights Reserved. | Designed by{' '}
+                        <a
+                            href="https://kyakabi.com/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                        >
+                            Kyakabi Group
+                        </a>
+                    </p>
+                </div>
+            </footer>
         </div>
     );
 };

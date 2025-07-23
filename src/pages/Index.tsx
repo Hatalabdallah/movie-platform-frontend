@@ -43,6 +43,7 @@ const IMAGES = [
 const Index = () => {
   const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const currentYear = new Date().getFullYear(); // Get the current year dynamically
 
   // Cast Autoplay to 'any' to bypass TypeScript type conflict
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true }, [Autoplay({ delay: 5000, stopOnInteraction: false }) as any]);
@@ -288,8 +289,16 @@ const Index = () => {
             <Film className="h-6 w-6 text-primary" />
             <span className="text-xl font-semibold">Ronnie's Ent</span>
           </div>
-          <p className="text-muted-foreground">
-            © 2025 Ronnie's Ent. All rights reserved. Premium movie downloads platform.
+          <p className="text-muted-foreground text-sm">
+            © {currentYear} Ronnie's Ent. All Rights Reserved. | Designed by{' '}
+            <a
+              href="https://kyakabi.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              Kyakabi Group
+            </a>
           </p>
         </div>
       </footer>

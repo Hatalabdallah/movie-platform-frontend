@@ -13,15 +13,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"; // Re-added Dialog imports
-import { Film, Upload, Users, BarChart3, LogOut, Trash2, Plus, TrendingUp, Download, Settings, Loader2, Check, Edit } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Film, Upload, Users, BarChart3, LogOut, Trash2, Plus, TrendingUp, Download, Settings, Loader2, Check, Edit, Sun, Moon, Crown } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { nodeBackendService, Movie, Profile, Analytics, DownloadStat, SubscriptionPlan, SubscriptionPlanPayload, UploadMovieData, AdminManageSubscriptionRequest } from "@/services/nodeBackendService"; // Import AdminManageSubscriptionRequest
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { nodeBackendService, Movie, Profile, Analytics, DownloadStat, SubscriptionPlan, SubscriptionPlanPayload, MovieMetadataPayload, AdminManageSubscriptionRequest, GetPresignedUploadUrlRequest } from "@/services/nodeBackendService";
 import { Progress } from "@/components/ui/progress";
+import { useTheme } from '@/contexts/ThemeContext';
 
-// Define initial state for new/edit plan form
 const initialPlanFormState: SubscriptionPlanPayload = {
   plan_name: "",
   price_ugx: "",
@@ -33,18 +32,18 @@ const initialPlanFormState: SubscriptionPlanPayload = {
   display_order: 0,
 };
 
-// Interface for an individual file upload state
 interface FileUploadState {
-  id: string; // Unique ID for this upload
+  id: string;
   file: File;
   title: string;
   description: string;
   vj: string;
   category: string;
   thumbnailFile: File | null;
-  progress: number; // 0-100
+  progress: number;
   status: 'pending' | 'uploading' | 'processing' | 'completed' | 'failed';
   errorMessage?: string;
+  s3Key?: string;
 }
 
 const AdminDashboard = () => {
@@ -53,7 +52,9 @@ const AdminDashboard = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Movie Upload States
+  const { theme, toggleTheme } = useTheme();
+  const currentYear = new Date().getFullYear();
+
   const [uploadForm, setUploadForm] = useState({
     title: "",
     description: "",
@@ -62,23 +63,19 @@ const AdminDashboard = () => {
   });
   const movieFileInputRef = useRef<HTMLInputElement>(null);
   const thumbnailFileInputRef = useRef<HTMLInputElement>(null);
-
   const [movieFiles, setMovieFiles] = useState<File[]>([]);
   const [thumbnailFiles, setThumbnailFiles] = useState<File[]>([]);
   const [activeUploads, setActiveUploads] = useState<FileUploadState[]>([]);
 
-  // Subscription Plan Management States
   const [isEditingPlan, setIsEditingPlan] = useState(false);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
   const [planForm, setPlanForm] = useState<SubscriptionPlanPayload>(initialPlanFormState);
   const [featuresInput, setFeaturesInput] = useState<string>("");
 
-  // Re-added Subscriber Subscription Management States
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [currentSubscriber, setCurrentSubscriber] = useState<Profile | null>(null);
-  const [selectedSubscriptionPlanId, setSelectedSubscriptionPlanId] = useState<string>(""); // Store plan ID
-  const [isSubscriberSubscribed, setIsSubscriberSubscribed] = useState<boolean>(false);
-  const [subscriptionAction, setSubscriptionAction] = useState<'activate_extend' | 'deactivate'>('activate_extend'); // New state for action
+  const [selectedSubscriptionPlanId, setSelectedSubscriptionPlanId] = useState<string>("");
+  const [subscriptionAction, setSubscriptionAction] = useState<'activate_extend' | 'deactivate'>('activate_extend');
 
   useEffect(() => {
     if (!user) {
@@ -88,78 +85,53 @@ const AdminDashboard = () => {
     }
   }, [user, navigate]);
 
-  // React Query for fetching movies (now using queryClient for invalidation)
   const { data: movies, isLoading: isLoadingMovies, error: errorLoadingMovies } = useQuery<Movie[], Error>({
     queryKey: ['adminMovies'],
     queryFn: nodeBackendService.getAllMovies,
     enabled: !!user?.isAdmin,
     onError: (err) => {
       console.error("Error fetching admin movies:", err);
-      toast({
-        title: "Error",
-        description: `Failed to load movies: ${err.message}`,
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: `Failed to load movies: ${err.message}`, variant: "destructive" });
     },
   });
 
-  // React Query for fetching subscribers
   const { data: subscribers, isLoading: isLoadingSubscribers, error: errorLoadingSubscribers } = useQuery<Profile[], Error>({
     queryKey: ['adminSubscribers'],
     queryFn: nodeBackendService.getAllSubscribers,
     enabled: !!user?.isAdmin,
     onError: (err) => {
       console.error("Error fetching admin subscribers:", err);
-      toast({
-        title: "Error",
-        description: `Failed to load subscribers: ${err.message}`,
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: `Failed to load subscribers: ${err.message}`, variant: "destructive" });
     },
   });
 
-  // React Query for fetching analytics
   const { data: analytics, isLoading: isLoadingAnalytics, error: errorLoadingAnalytics } = useQuery<Analytics, Error>({
     queryKey: ['adminAnalytics'],
     queryFn: nodeBackendService.getPlatformAnalytics,
     enabled: !!user?.isAdmin,
     onError: (err) => {
       console.error("Error fetching platform analytics:", err);
-      toast({
-        title: "Error",
-        description: `Failed to load analytics: ${err.message}`,
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: `Failed to load analytics: ${err.message}`, variant: "destructive" });
     },
   });
 
-  // React Query for fetching download stats
   const { data: downloadStats, isLoading: isLoadingDownloadStats, error: errorLoadingDownloadStats } = useQuery<DownloadStat[], Error>({
     queryKey: ['adminDownloadStats'],
     queryFn: nodeBackendService.getMovieDownloadStats,
     enabled: !!user?.isAdmin,
     onError: (err) => {
       console.error("Error fetching movie download stats:", err);
-      toast({
-        title: "Error",
-        description: `Failed to load download stats: ${err.message}`,
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: `Failed to load download stats: ${err.message}`, variant: "destructive" });
     },
   });
 
-  // React Query for Subscription Plans
   const { data: subscriptionPlans, isLoading: isLoadingPlans, error: errorLoadingPlans } = useQuery<SubscriptionPlan[], Error>({
     queryKey: ['adminSubscriptionPlans'],
     queryFn: nodeBackendService.getAllSubscriptionPlansAdmin,
     enabled: !!user?.isAdmin,
     onError: (err) => {
       console.error("Error fetching admin subscription plans:", err);
-      toast({
-        title: "Error",
-        description: `Failed to load subscription plans: ${err.message}`,
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: `Failed to load subscription plans: ${err.message}`, variant: "destructive" });
     },
   });
 
@@ -208,14 +180,12 @@ const AdminDashboard = () => {
     },
   });
 
-  // NEW: Mutation for admin managing user subscriptions
   const adminManageSubscriptionMutation = useMutation({
     mutationFn: ({ userId, payload }: { userId: string; payload: AdminManageSubscriptionRequest }) =>
       nodeBackendService.adminManageUserSubscription(userId, payload),
     onSuccess: (data, variables) => {
       toast({ title: "Success", description: data.message });
-      queryClient.invalidateQueries({ queryKey: ['adminSubscribers'] }); // Invalidate to refetch subscribers
-      // If the user whose subscription was managed is the currently logged-in admin, refresh their profile too
+      queryClient.invalidateQueries({ queryKey: ['adminSubscribers'] });
       if (user?.id === variables.userId) {
         queryClient.invalidateQueries({ queryKey: ['userProfile'] });
       }
@@ -229,13 +199,11 @@ const AdminDashboard = () => {
     },
   });
 
-
   const handleLogout = () => {
     logout();
     navigate("/");
   };
 
-  // Handle multiple movie file selection
   const handleMovieFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       setMovieFiles(Array.from(e.target.files));
@@ -244,7 +212,6 @@ const AdminDashboard = () => {
     }
   };
 
-  // Handle multiple thumbnail file selection (optional, can be one-to-one with movies)
   const handleThumbnailFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       setThumbnailFiles(Array.from(e.target.files));
@@ -265,49 +232,50 @@ const AdminDashboard = () => {
       return;
     }
 
-    // For simplicity, let's assume one thumbnail per movie if multiple are selected,
-    // or just the first thumbnail if only one is provided for multiple movies.
-    // A more robust solution would map thumbnails to movies explicitly.
-    const thumbnailFileForUpload = thumbnailFiles.length > 0 ? thumbnailFiles[0] : null;
-
-    // Create a new upload state for each movie file
     const newUploads: FileUploadState[] = movieFiles.map((file) => ({
-      id: `${file.name}-${Date.now()}-${Math.random()}`, // More unique ID
+      id: `${file.name}-${Date.now()}-${Math.random()}`,
       file: file,
-      title: uploadForm.title, // Common title for all for now, or make form dynamic
+      title: uploadForm.title,
       description: uploadForm.description,
       vj: uploadForm.vj,
       category: uploadForm.category,
-      thumbnailFile: thumbnailFileForUpload, // Apply the same thumbnail to all for simplicity
+      thumbnailFile: null, // Will be set later if a thumbnail is chosen
       progress: 0,
       status: 'pending',
     }));
 
+    const thumbnailFile = thumbnailFiles.length > 0 ? thumbnailFiles[0] : null;
+
     // Add new uploads to the activeUploads list
     setActiveUploads(prev => [...prev, ...newUploads]);
 
-    // Clear the form fields and file inputs immediately
+    // Clear the form fields and file inputs immediately after initiating the upload
     setUploadForm({ title: "", description: "", vj: "", category: "Action" });
     setMovieFiles([]);
     setThumbnailFiles([]);
+
     if (movieFileInputRef.current) movieFileInputRef.current.value = "";
     if (thumbnailFileInputRef.current) thumbnailFileInputRef.current.value = "";
 
-
-    // Start uploads concurrently
+    // Process each new upload concurrently
     newUploads.forEach(async (uploadState) => {
       try {
         setActiveUploads(prev => prev.map(u => u.id === uploadState.id ? { ...u, status: 'uploading' } : u));
 
-        await nodeBackendService.uploadMovie(
-          {
-            title: uploadState.title,
-            description: uploadState.description || null,
-            vj: uploadState.vj,
-            category: uploadState.category,
-            movieFile: uploadState.file,
-            thumbnailFile: uploadState.thumbnailFile,
-          },
+        // 1. Get pre-signed URL for movie file
+        const moviePresignedUrlRequest: GetPresignedUploadUrlRequest = {
+          fileName: uploadState.file.name,
+          fileType: uploadState.file.type,
+          fileSize: uploadState.file.size,
+          folder: 'movies',
+        };
+        const moviePresignedResponse = await nodeBackendService.getPresignedUploadUrl(moviePresignedUrlRequest);
+        const movieS3Key = moviePresignedResponse.s3Key;
+
+        // 2. Upload movie file directly to S3
+        await nodeBackendService.uploadFileToS3(
+          moviePresignedResponse.presignedUrl,
+          uploadState.file,
           (progressEvent) => {
             if (progressEvent.total) {
               const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -316,11 +284,42 @@ const AdminDashboard = () => {
           }
         );
 
-        setActiveUploads(prev => prev.map(u => u.id === uploadState.id ? { ...u, status: 'completed', progress: 100 } : u));
+        let thumbnailS3Key: string | null = null;
+        if (thumbnailFile) {
+          // 3. Get pre-signed URL for thumbnail file (if exists)
+          const thumbnailPresignedUrlRequest: GetPresignedUploadUrlRequest = {
+            fileName: thumbnailFile.name,
+            fileType: thumbnailFile.type,
+            fileSize: thumbnailFile.size,
+            folder: 'thumbnails',
+          };
+          const thumbnailPresignedResponse = await nodeBackendService.getPresignedUploadUrl(thumbnailPresignedUrlRequest);
+          thumbnailS3Key = thumbnailPresignedResponse.s3Key;
+
+          // 4. Upload thumbnail file directly to S3
+          await nodeBackendService.uploadFileToS3(thumbnailPresignedResponse.presignedUrl, thumbnailFile);
+        }
+
+        // 5. Send movie metadata and S3 keys to backend to save in DB
+        const movieDataToSave: MovieMetadataPayload = {
+          title: uploadState.title,
+          description: uploadForm.description || null,
+          vj: uploadForm.vj,
+          category: uploadForm.category,
+          movieS3Key: movieS3Key,
+          thumbnailS3Key: thumbnailS3Key,
+          size: uploadState.file.size,
+        };
+
+        await nodeBackendService.saveMovieMetadata(movieDataToSave);
+
+        setActiveUploads(prev => prev.map(u => u.id === uploadState.id ? { ...u, status: 'completed', progress: 100, s3Key: movieS3Key } : u));
+
         toast({
           title: "Success",
-          description: `${uploadState.title || uploadState.file.name} has been uploaded successfully!`,
+          description: `${uploadState.title || uploadState.file.name} has been uploaded and recorded successfully!`,
         });
+
       } catch (error) {
         console.error(`Error uploading movie ${uploadState.file.name}:`, error);
         setActiveUploads(prev => prev.map(u => u.id === uploadState.id ? { ...u, status: 'failed', errorMessage: (error as Error).message || "Upload failed." } : u));
@@ -330,12 +329,11 @@ const AdminDashboard = () => {
           variant: "destructive"
         });
       } finally {
-        // Invalidate movies query to refetch after upload attempt
+        // Invalidate queries to refresh movie list after each upload attempt (success or failure)
         queryClient.invalidateQueries({ queryKey: ['adminMovies'] });
       }
     });
   };
-
 
   const handleDeleteMovie = async (id: string, title: string) => {
     try {
@@ -344,7 +342,7 @@ const AdminDashboard = () => {
         title: "Success",
         description: `${title} has been deleted successfully`
       });
-      queryClient.invalidateQueries({ queryKey: ['adminMovies'] }); // Invalidate to refetch
+      queryClient.invalidateQueries({ queryKey: ['adminMovies'] });
     } catch (error) {
       console.error("Error deleting movie:", error);
       toast({
@@ -362,7 +360,7 @@ const AdminDashboard = () => {
         title: "Success",
         description: `Subscriber ${email} has been deleted successfully`
       });
-      queryClient.invalidateQueries({ queryKey: ['adminSubscribers'] }); // Invalidate to refetch
+      queryClient.invalidateQueries({ queryKey: ['adminSubscribers'] });
     } catch (error) {
       console.error("Error deleting subscriber:", error);
       toast({
@@ -373,18 +371,14 @@ const AdminDashboard = () => {
     }
   };
 
-  // Re-added handleManageSubscriptionClick
   const handleManageSubscriptionClick = (subscriber: Profile) => {
     setCurrentSubscriber(subscriber);
-    setIsSubscriberSubscribed(subscriber.is_subscribed || false); // Initialize checkbox
-    // Set selected plan based on current subscription, or to 'none'
     const currentPlan = subscriptionPlans?.find(p => p.plan_name === subscriber.subscription_plan);
-    setSelectedSubscriptionPlanId(currentPlan?.id || ""); // Use plan ID
-    setSubscriptionAction(subscriber.is_subscribed ? 'activate_extend' : 'activate_extend'); // Default to activate/extend
+    setSelectedSubscriptionPlanId(currentPlan?.id || "");
+    setSubscriptionAction(subscriber.is_subscribed ? 'activate_extend' : 'activate_extend');
     setIsSubscriptionModalOpen(true);
   };
 
-  // Re-added handleSaveSubscription
   const handleSaveSubscription = async () => {
     if (!currentSubscriber) return;
 
@@ -392,7 +386,7 @@ const AdminDashboard = () => {
 
     if (subscriptionAction === 'deactivate') {
       payload = { action: 'deactivate' };
-    } else { // activate_extend
+    } else {
       if (!selectedSubscriptionPlanId) {
         toast({ title: "Error", description: "Please select a subscription plan.", variant: "destructive" });
         return;
@@ -410,8 +404,6 @@ const AdminDashboard = () => {
     }
   };
 
-
-  // Subscription Plan Handlers
   const handleFeaturesInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setFeaturesInput(e.target.value);
   };
@@ -442,7 +434,7 @@ const AdminDashboard = () => {
       is_active: plan.is_active,
       display_order: plan.display_order,
     });
-    setFeaturesInput(plan.features.join('\n')); // Join features for textarea
+    setFeaturesInput(plan.features.join('\n'));
   };
 
   const handleCancelEdit = () => {
@@ -454,12 +446,14 @@ const AdminDashboard = () => {
 
   const handlePlanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     const payload: SubscriptionPlanPayload = {
       ...planForm,
-      features: featuresInput.split('\n').map(f => f.trim()).filter(f => f.length > 0), // Split and trim features
-      duration_days: parseInt(planForm.duration_days.toString(), 10), // Ensure number
-      display_order: parseInt(planForm.display_order.toString(), 10), // Ensure number
+      features: featuresInput.split('\n').map(f => f.trim()).filter(f => f.length > 0),
+      duration_days: parseInt(planForm.duration_days.toString(), 10),
+      display_order: parseInt(planForm.display_order.toString(), 10),
     };
+
     if (isEditingPlan && currentPlanId) {
       await updatePlanMutation.mutateAsync({ id: currentPlanId, payload });
     } else {
@@ -471,26 +465,29 @@ const AdminDashboard = () => {
     await deletePlanMutation.mutateAsync(id);
   };
 
-  // Memoize sorted plans for display
   const sortedSubscriptionPlans = useMemo(() => {
     if (!subscriptionPlans) return [];
     return Array.isArray(subscriptionPlans) ? [...subscriptionPlans].sort((a, b) => a.display_order - b.display_order) : [];
   }, [subscriptionPlans]);
 
-  // Combined loading state for dashboard data
   const overallLoading = isLoadingMovies || isLoadingSubscribers || isLoadingAnalytics || isLoadingDownloadStats;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted">
-      {/* Header */}
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted flex flex-col">
       <header className="border-b bg-background/80 backdrop-blur-md sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <Link to="/dashboard" className="flex items-center space-x-2">
             <Film className="h-8 w-8 text-primary" />
-            <h1 className="text-2xl font-bold">Ronnie's Ent - Admin</h1>
+            <h1 className="text-2xl font-bold">Ronnie's Ent</h1>
           </Link>
           <div className="flex items-center space-x-4">
-            <ThemeToggle />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+            >
+              {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
             <Badge variant="destructive">Admin</Badge>
             <Button variant="ghost" size="icon" onClick={handleLogout}>
               <LogOut className="h-5 w-4" />
@@ -498,13 +495,15 @@ const AdminDashboard = () => {
           </div>
         </div>
       </header>
-      <div className="container mx-auto px-4 py-8">
+
+      <div className="container mx-auto px-4 py-8 flex-grow">
         <div className="mb-8">
           <h2 className="text-3xl font-bold mb-2">Admin Dashboard</h2>
           <p className="text-muted-foreground">
             Manage movies, subscribers, platform analytics, and subscription plans
           </p>
         </div>
+
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -513,6 +512,7 @@ const AdminDashboard = () => {
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
             <TabsTrigger value="plans">Plans</TabsTrigger>
           </TabsList>
+
           <TabsContent value="overview" className="space-y-6">
             {overallLoading ? (
               <div className="flex justify-center items-center h-48">
@@ -520,7 +520,6 @@ const AdminDashboard = () => {
               </div>
             ) : (
               <>
-                {/* Stats Cards */}
                 <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
                   <Card>
                     <CardHeader className="pb-2">
@@ -559,7 +558,6 @@ const AdminDashboard = () => {
                     </CardContent>
                   </Card>
                 </div>
-                {/* Recent Movies */}
                 <Card>
                   <CardHeader>
                     <CardTitle>Recent Movies</CardTitle>
@@ -591,8 +589,8 @@ const AdminDashboard = () => {
               </>
             )}
           </TabsContent>
+
           <TabsContent value="movies" className="space-y-6">
-            {/* Upload Form */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -662,6 +660,7 @@ const AdminDashboard = () => {
                     <p className="text-sm text-muted-foreground">Select the movie file (MP4, MKV, etc.).</p>
                   </div>
 
+                  {/* Display active uploads and their progress */}
                   {activeUploads.map(upload => (
                     <div key={upload.id} className="space-y-2 border p-3 rounded-md">
                       <div className="flex justify-between items-center">
@@ -683,17 +682,18 @@ const AdminDashboard = () => {
                   <Button
                     type="submit"
                     className="w-full"
+                    // Modified: Removed the check for active uploads, allowing concurrent submissions
                     disabled={!uploadForm.title || !uploadForm.vj || !uploadForm.category || movieFiles.length === 0}
                   >
                     <Upload className="h-4 w-4 mr-2" />
+                    {/* Display status based on overall active uploads, but button remains clickable */}
                     {activeUploads.some(u => u.status === 'uploading') ? "Uploading..." :
-                     activeUploads.some(u => u.status === 'processing') ? "Processing..." :
-                     "Upload Movie"}
+                      activeUploads.some(u => u.status === 'processing') ? "Processing..." :
+                        "Upload Movie"}
                   </Button>
                 </form>
               </CardContent>
             </Card>
-            {/* Movie Management */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -709,67 +709,80 @@ const AdminDashboard = () => {
                   </div>
                 ) : movies && movies.length > 0 ? (
                   <div className="space-y-4">
-                    {movies.map(movie => (
-                      <div key={movie.id} className="flex items-center justify-between p-4 border rounded-lg shadow-sm">
-                        <div className="flex items-center space-x-4">
-                          {movie.thumbnail_url ? (
-                            <img
-                              src={`${nodeBackendService.API_BASE_URL}${movie.thumbnail_url}`}
-                              alt={`${movie.title} thumbnail`}
-                              className="w-16 h-16 object-cover rounded-md flex-shrink-0"
-                              onError={(e) => {
-                                e.currentTarget.src = '/placeholder.png';
-                                e.currentTarget.alt = 'Thumbnail not available';
-                              }}
-                            />
-                          ) : (
-                            <div className="w-16 h-16 bg-muted flex items-center justify-center rounded-md text-muted-foreground text-center text-sm flex-shrink-0">
-                              No <br />Img
-                            </div>
-                          )}
+                    {movies.map(movie => {
+                      const displayThumbnailUrl = movie.thumbnail_url
+                        ? (movie.thumbnail_url.startsWith('http://') || movie.thumbnail_url.startsWith('https://'))
+                          ? movie.thumbnail_url
+                          : nodeBackendService.CLOUDFRONT_DOMAIN && movie.thumbnail_url.startsWith('/thumbnails/')
+                            ? `${nodeBackendService.CLOUDFRONT_DOMAIN}${movie.thumbnail_url}`
+                            : null
+                        : null;
 
-                          <div className="flex-1">
-                            <h4 className="font-medium">{movie.title}</h4>
-                            <p className="text-sm text-muted-foreground">
-                              VJ: {movie.vj} • {movie.category}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Uploaded:{" "}
-                              {movie.created_at && !isNaN(new Date(movie.created_at).getTime())
-                                ? new Date(movie.created_at).toLocaleDateString()
-                                : "N/A Date"}
-                            </p>
+                      return (
+                        <div key={movie.id} className="flex items-center justify-between p-4 border rounded-lg shadow-sm">
+                          <div className="flex items-center space-x-4">
+                            {displayThumbnailUrl ? (
+                              <img
+                                src={displayThumbnailUrl}
+                                alt={`${movie.title} thumbnail`}
+                                className="w-16 h-16 object-cover rounded-md flex-shrink-0"
+                                onError={(e) => {
+                                  e.currentTarget.src = '/placeholder.png';
+                                  e.currentTarget.alt = 'Thumbnail not available';
+                                }}
+                              />
+                            ) : (
+                              <div className="w-16 h-16 bg-muted flex items-center justify-center rounded-md text-muted-foreground text-center text-sm flex-shrink-0">
+                                No <br />Img
+                              </div>
+                            )}
+
+                            <div className="flex-1">
+                              <h4 className="font-medium">{movie.title}</h4>
+                              <p className="text-sm text-muted-foreground">
+                                VJ: {movie.vj} • {movie.category}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Uploaded:{" "}
+                                {movie.created_at && !isNaN(new Date(movie.created_at).getTime())
+                                  ? new Date(movie.created_at).toLocaleDateString()
+                                  : "N/A Date"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm" disabled={isLoadingMovies}>
+                                  <Trash2 className="h-4 w-4 mr-1" />
+                                  Delete
+                                </Button>
+                              </AlertDialogTrigger>
+
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete Movie</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to delete "{movie.title}"? This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => handleDeleteMovie(movie.id, movie.title)}
+                                    className="bg-destructive text-destructive-foreground"
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="destructive" size="sm" disabled={isLoadingMovies}>
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                Delete
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Movie</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to delete "{movie.title}"? This action cannot be undone.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDeleteMovie(movie.id, movie.title)}
-                                  className="bg-destructive text-destructive-foreground"
-                                >
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-muted-foreground">No movies uploaded yet</p>
@@ -777,6 +790,7 @@ const AdminDashboard = () => {
               </CardContent>
             </Card>
           </TabsContent>
+
           <TabsContent value="subscribers" className="space-y-6">
             <Card>
               <CardHeader>
@@ -803,7 +817,7 @@ const AdminDashboard = () => {
                           {subscriber.phone && (
                             <p className="text-xs text-muted-foreground">Phone: {subscriber.phone}</p>
                           )}
-                          <p className="text-sm mt-1">
+                          <div className="text-sm mt-1">
                             Subscription:{" "}
                             <Badge variant={subscriber.is_subscribed ? "default" : "secondary"}>
                               {subscriber.is_subscribed ? subscriber.subscription_plan : "None"}
@@ -813,8 +827,9 @@ const AdminDashboard = () => {
                                 (Ends: {new Date(subscriber.subscription_end_date).toLocaleDateString()})
                               </span>
                             )}
-                          </p>
+                          </div>
                         </div>
+
                         <div className="flex items-center space-x-2">
                           <Badge variant="outline">
                             {subscriber.is_admin ? 'Admin' : 'Subscriber'}
@@ -830,6 +845,7 @@ const AdminDashboard = () => {
                                 <Edit className="h-4 w-4 mr-1" />
                                 Manage Subscription
                               </Button>
+
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                   <Button variant="destructive" size="sm" disabled={isLoadingSubscribers}>
@@ -837,6 +853,7 @@ const AdminDashboard = () => {
                                     Delete
                                   </Button>
                                 </AlertDialogTrigger>
+
                                 <AlertDialogContent>
                                   <AlertDialogHeader>
                                     <AlertDialogTitle>Delete Subscriber</AlertDialogTitle>
@@ -844,6 +861,7 @@ const AdminDashboard = () => {
                                       Are you sure you want to delete subscriber "{subscriber.email}"? This will permanently remove their access to the platform.
                                     </AlertDialogDescription>
                                   </AlertDialogHeader>
+
                                   <AlertDialogFooter>
                                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                                     <AlertDialogAction
@@ -851,7 +869,7 @@ const AdminDashboard = () => {
                                       className="bg-destructive text-destructive-foreground"
                                     >
                                       Delete
-                                    </AlertDialogAction>
+                                  </AlertDialogAction>
                                   </AlertDialogFooter>
                                 </AlertDialogContent>
                               </AlertDialog>
@@ -869,6 +887,7 @@ const AdminDashboard = () => {
               </CardContent>
             </Card>
           </TabsContent>
+
           <TabsContent value="analytics" className="space-y-6">
             {isLoadingAnalytics || isLoadingDownloadStats ? (
               <div className="flex justify-center items-center h-48">
@@ -876,7 +895,6 @@ const AdminDashboard = () => {
               </div>
             ) : (
               <>
-                {/* Analytics Overview */}
                 <div className="grid md:grid-cols-3 gap-6">
                   <Card>
                     <CardHeader className="pb-2">
@@ -915,6 +933,7 @@ const AdminDashboard = () => {
                     </CardContent>
                   </Card>
                 </div>
+
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center">
@@ -952,7 +971,6 @@ const AdminDashboard = () => {
               </>
             )}
           </TabsContent>
-          {/* NEW TAB CONTENT: Subscription Plan Management */}
           <TabsContent value="plans" className="space-y-6">
             <Card>
               <CardHeader>
@@ -1040,6 +1058,7 @@ const AdminDashboard = () => {
                       value={planForm.description}
                       onChange={(e) => handlePlanFormChange(e)}
                       placeholder="A short description of the plan."
+                      rows={5}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1048,7 +1067,7 @@ const AdminDashboard = () => {
                       id="features"
                       value={featuresInput}
                       onChange={handleFeaturesInputChange}
-                      placeholder="e.g., Unlimited downloads&#10;4K quality&#10;Priority support"
+                      placeholder="e.g., Unlimited downloads\n4K quality\nPriority support"
                       rows={5}
                       required
                     />
@@ -1077,6 +1096,7 @@ const AdminDashboard = () => {
                 </form>
               </CardContent>
             </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -1118,10 +1138,12 @@ const AdminDashboard = () => {
                             Order: {plan.display_order}
                           </Badge>
                         </div>
+
                         <div className="flex items-center space-x-2">
                           <Button variant="outline" size="sm" onClick={() => handleEditPlanClick(plan)} disabled={isEditingPlan || deletePlanMutation.isPending}>
                             Edit
                           </Button>
+
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button variant="destructive" size="sm" disabled={isEditingPlan || deletePlanMutation.isPending}>
@@ -1129,6 +1151,7 @@ const AdminDashboard = () => {
                                 Delete
                               </Button>
                             </AlertDialogTrigger>
+
                             <AlertDialogContent>
                               <AlertDialogHeader>
                                 <AlertDialogTitle>Delete Subscription Plan</AlertDialogTitle>
@@ -1136,6 +1159,7 @@ const AdminDashboard = () => {
                                   Are you sure you want to delete the "{plan.plan_name}" plan? This action cannot be undone.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
+
                               <AlertDialogFooter>
                                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                                 <AlertDialogAction
@@ -1158,7 +1182,6 @@ const AdminDashboard = () => {
         </Tabs>
       </div>
 
-      {/* Re-added Subscription Management Modal */}
       {currentSubscriber && (
         <Dialog open={isSubscriptionModalOpen} onOpenChange={setIsSubscriptionModalOpen}>
           <DialogContent className="sm:max-w-[425px]">
@@ -1168,6 +1191,7 @@ const AdminDashboard = () => {
                 Manually activate, extend, or deactivate the subscription for this user.
               </DialogDescription>
             </DialogHeader>
+
             <div className="grid gap-4 py-4 px-6">
               <div className="space-y-2">
                 <Label htmlFor="subscriptionAction">Action</Label>
@@ -1213,7 +1237,6 @@ const AdminDashboard = () => {
                 </div>
               )}
 
-              {/* Display current subscription status and end date */}
               <div className="space-y-2">
                 <Label>Current Status:</Label>
                 <Badge variant={currentSubscriber.is_subscribed ? "default" : "secondary"}>
@@ -1226,6 +1249,7 @@ const AdminDashboard = () => {
                 )}
               </div>
             </div>
+
             <DialogFooter className="px-6 pt-4">
               <Button variant="outline" onClick={() => setIsSubscriptionModalOpen(false)}>
                 Cancel
@@ -1237,6 +1261,26 @@ const AdminDashboard = () => {
           </DialogContent>
         </Dialog>
       )}
+
+      <footer className="border-t bg-background py-12 px-4 mt-auto">
+        <div className="container mx-auto text-center">
+          <div className="flex items-center justify-center space-x-2 mb-4">
+            <Film className="h-6 w-6 text-primary" />
+            <span className="text-xl font-semibold">Ronnie's Ent</span>
+          </div>
+          <p className="text-muted-foreground text-sm">
+            © {currentYear} Ronnie's Ent. All Rights Reserved. | Designed by{' '}
+            <a
+              href="https://kyakabi.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              Kyakabi Group
+            </a>
+          </p>
+        </div>
+      </footer>
     </div>
   );
 };

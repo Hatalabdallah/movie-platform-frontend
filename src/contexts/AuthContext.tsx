@@ -2,19 +2,20 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useToast } from "@/hooks/use-toast";
-// Import nodeBackendService and UserProfileResponse to use its centralized functions and types
-import { nodeBackendService, UserProfileResponse } from "@/services/nodeBackendService"; 
+import { nodeBackendService, UserProfileResponse } from "@/services/nodeBackendService";
+import { v4 as uuidv4 } from 'uuid'; // Import uuid for generating device IDs
 
-// Define the shape of your User object (matches what your Node.js backend returns from /profile
-// after nodeBackendService has mapped it to camelCase)
+// Define the shape of your User object, including new fields
 interface User {
   id: string;
   email: string;
-  fullName?: string | null; // Matches UserProfileResponse
-  isAdmin: boolean;        // Matches UserProfileResponse
-  isSubscribed: boolean;   // Matches UserProfileResponse
-  subscriptionPlan?: string; // Matches UserProfileResponse
-  deviceId?: string;       // Derived from deviceIDs in UserProfileResponse
+  fullName?: string | null;
+  isAdmin: boolean;
+  isSubscribed: boolean;
+  subscriptionPlan?: string;
+  deviceId?: string;
+  phone?: string | null; // NEW: Added phone field
+  subscriptionEndDate?: string | null; // NEW: Added subscriptionEndDate field
 }
 
 // Define the shape of your AuthContext
@@ -28,7 +29,6 @@ interface AuthContextType {
   register: (email: string, password: string, fullName: string) => Promise<User | null>;
   logout: () => void;
   loading: boolean;
-  // ADDED: checkUserProfile function to refresh user data
   checkUserProfile: () => Promise<User | null>;
 }
 
@@ -40,6 +40,23 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+// Helper for conditional logging in development
+const devLog = (...args: any[]) => {
+  if (import.meta.env.DEV) {
+    console.log(...args);
+  }
+};
+
+// Helper function to get or generate a device ID
+const getDeviceId = (): string => {
+  let deviceId = localStorage.getItem('deviceId');
+  if (!deviceId) {
+    deviceId = uuidv4();
+    localStorage.setItem('deviceId', deviceId);
+  }
+  return deviceId;
+};
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('jwt_token'));
@@ -50,21 +67,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const isAdmin = user ? user.isAdmin : false;
   const isSubscribed = user ? user.isSubscribed : false;
 
-  // This function now fetches the *full* user profile using nodeBackendService
   const checkUserProfile = async (): Promise<User | null> => {
     setLoading(true);
     const storedToken = localStorage.getItem('jwt_token');
 
     if (storedToken) {
       try {
-        console.log('[AuthContext] Checking user profile...');
-        // Use the service function to get the profile.
-        // It now handles the API call and maps the backend's snake_case response
-        // to the frontend's camelCase UserProfileResponse.
+        devLog('[AuthContext] Checking user profile...');
         const profileData: UserProfileResponse = await nodeBackendService.getUserProfile();
-        console.log('[AuthContext] User profile fetched:', profileData);
+        devLog('[AuthContext] User profile fetched:', profileData);
 
-        // Directly use the profileData as it's already in the correct camelCase format
         const fetchedUser: User = {
           id: profileData.id,
           email: profileData.email,
@@ -72,14 +84,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           isAdmin: profileData.isAdmin,
           isSubscribed: profileData.isSubscribed,
           subscriptionPlan: profileData.subscriptionPlan,
-          // Ensure deviceIDs is an array before accessing [0]
           deviceId: profileData.deviceIDs && profileData.deviceIDs.length > 0 ? profileData.deviceIDs[0] : undefined,
+          phone: profileData.phone, // NEW: Map phone
+          subscriptionEndDate: profileData.subscription_end_date, // NEW: Map subscription_end_date
         };
 
         setUser(fetchedUser);
-        setToken(storedToken); // Ensure token is still set
+        setToken(storedToken);
         setLoading(false);
-        console.log('[AuthContext] User profile set:', fetchedUser);
+        devLog('[AuthContext] User profile set:', fetchedUser);
         return fetchedUser;
       } catch (error) {
         console.error('[AuthContext] Error checking user profile:', error);
@@ -88,10 +101,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return null;
       }
     }
-    // If no stored token, ensure loading is false and user/token are null
-    cleanupAuthState(); // Ensure state is clean if no token
+    cleanupAuthState();
     setLoading(false);
-    console.log('[AuthContext] No stored token found, user not authenticated.');
+    devLog('[AuthContext] No stored token found, user not authenticated.');
     return null;
   };
 
@@ -103,26 +115,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.removeItem('jwt_token');
     setUser(null);
     setToken(null);
-    console.log('[AuthContext] Auth state cleaned up.');
+    devLog('[AuthContext] Auth state cleaned up.');
   };
 
-  // Login function - now calls nodeBackendService.login
   const login = async (email: string, password: string): Promise<User | null> => {
     setLoading(true);
-    console.log('[AuthContext] Attempting login...');
+    devLog('[AuthContext] Attempting login...');
     try {
-      cleanupAuthState(); // Ensure clean state before new login attempt
+      cleanupAuthState();
+      const deviceId = getDeviceId(); // Get or generate device ID
 
-      console.log('[AuthContext] Calling nodeBackendService.login...');
-      // Use the login function from nodeBackendService.
-      // It returns the token and the already mapped UserProfileResponse.
-      const { token: newToken, user: fetchedUserProfile } = await nodeBackendService.login(email, password);
-      console.log('[AuthContext] nodeBackendService.login returned:', { newToken, fetchedUserProfile });
+      devLog('[AuthContext] Calling nodeBackendService.login...');
+      const { token: newToken, user: fetchedUserProfile } = await nodeBackendService.login(email, password, deviceId); // Pass deviceId
+      devLog('[AuthContext] nodeBackendService.login returned:', { newToken, fetchedUserProfile });
 
       localStorage.setItem('jwt_token', newToken);
       setToken(newToken);
-      
-      // Set user directly from the fetchedUserProfile (already in camelCase)
+
       const mappedUser: User = {
         id: fetchedUserProfile.id,
         email: fetchedUserProfile.email,
@@ -130,43 +139,41 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isAdmin: fetchedUserProfile.isAdmin,
         isSubscribed: fetchedUserProfile.isSubscribed,
         subscriptionPlan: fetchedUserProfile.subscriptionPlan,
-        // Ensure deviceIDs is an array before accessing [0]
         deviceId: fetchedUserProfile.deviceIDs && fetchedUserProfile.deviceIDs.length > 0 ? fetchedUserProfile.deviceIDs[0] : undefined,
+        phone: fetchedUserProfile.phone, // NEW: Map phone
+        subscriptionEndDate: fetchedUserProfile.subscription_end_date, // NEW: Map subscription_end_date
       };
       setUser(mappedUser);
       setLoading(false);
-      console.log('[AuthContext] Login successful, user set:', mappedUser);
+      devLog('[AuthContext] Login successful, user set:', mappedUser);
       return mappedUser;
     } catch (error) {
-      console.error('[AuthContext] Error during login:', error); // This is the key log
+      console.error('[AuthContext] Error during login:', error);
       toast({
         title: "Login Failed",
         description: (error as Error).message || "Invalid credentials. Please try again.",
         variant: "destructive",
       });
-      cleanupAuthState(); // Clean up on login failure
+      cleanupAuthState();
       setLoading(false);
       return null;
     }
   };
 
-  // Register function - now calls nodeBackendService.register
   const register = async (email: string, password: string, fullName: string): Promise<User | null> => {
     setLoading(true);
-    console.log('[AuthContext] Attempting registration...');
+    devLog('[AuthContext] Attempting registration...');
     try {
-      cleanupAuthState(); // Ensure clean state before new registration attempt
+      cleanupAuthState();
+      const deviceId = getDeviceId(); // Get or generate device ID
 
-      console.log('[AuthContext] Calling nodeBackendService.register...');
-      // Use the register function from nodeBackendService.
-      // It returns the token and the already mapped UserProfileResponse.
-      const { token: newToken, user: fetchedUserProfile } = await nodeBackendService.register(email, password, fullName);
-      console.log('[AuthContext] nodeBackendService.register returned:', { newToken, fetchedUserProfile });
+      devLog('[AuthContext] Calling nodeBackendService.register...');
+      const { token: newToken, user: fetchedUserProfile } = await nodeBackendService.register(email, password, fullName, deviceId); // Pass deviceId
+      devLog('[AuthContext] nodeBackendService.register returned:', { newToken, fetchedUserProfile });
 
       localStorage.setItem('jwt_token', newToken);
       setToken(newToken);
-      
-      // Set user directly from the fetchedUserProfile (already in camelCase)
+
       const mappedUser: User = {
         id: fetchedUserProfile.id,
         email: fetchedUserProfile.email,
@@ -174,8 +181,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isAdmin: fetchedUserProfile.isAdmin,
         isSubscribed: fetchedUserProfile.isSubscribed,
         subscriptionPlan: fetchedUserProfile.subscriptionPlan,
-        // Ensure deviceIDs is an array before accessing [0]
         deviceId: fetchedUserProfile.deviceIDs && fetchedUserProfile.deviceIDs.length > 0 ? fetchedUserProfile.deviceIDs[0] : undefined,
+        phone: fetchedUserProfile.phone, // NEW: Map phone
+        subscriptionEndDate: fetchedUserProfile.subscription_end_date, // NEW: Map subscription_end_date
       };
       setUser(mappedUser);
       setLoading(false);
@@ -183,7 +191,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         title: "Registration Successful",
         description: "You have been registered and logged in!",
       });
-      console.log('[AuthContext] Registration successful, user set:', mappedUser);
+      devLog('[AuthContext] Registration successful, user set:', mappedUser);
       return mappedUser;
     } catch (error) {
       console.error('[AuthContext] Error during registration:', error);
@@ -192,7 +200,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         description: (error as Error).message || "An unexpected error occurred during registration. Please try again.",
         variant: "destructive",
       });
-      cleanupAuthState(); // Clean up on registration failure
+      cleanupAuthState();
       setLoading(false);
       return null;
     }
@@ -213,7 +221,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     register,
     logout,
     loading,
-    checkUserProfile, // ADDED: Provide the checkUserProfile function
+    checkUserProfile,
   };
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;

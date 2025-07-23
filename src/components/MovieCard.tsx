@@ -4,41 +4,32 @@ import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, Play, Calendar, Crown, User } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-// Removed useAuth import as isSubscribed will be passed as a prop
-// import { useAuth } from "@/contexts/AuthContext"; 
-import { Movie as NodeMovie } from "@/services/nodeBackendService";
+import { Film, Download, Play, Calendar, Crown, User } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast"; // Corrected import path
+// Import Movie interface and CLOUDFRONT_DOMAIN from nodeBackendService
+import { Movie as NodeMovie, nodeBackendService, CLOUDFRONT_DOMAIN } from "@/services/nodeBackendService";
 import { Link } from "react-router-dom";
-
-// Get the backend URL from environment variables
-const BACKEND_BASE_URL = import.meta.env.VITE_NODE_BACKEND_URL || 'http://localhost:3001';
 
 interface MovieCardProps {
   movie: NodeMovie;
-  isSubscribed: boolean; // NEW: Add isSubscribed as a prop
+  isSubscribed: boolean;
 }
 
-export function MovieCard({ movie, isSubscribed }: MovieCardProps) { // Destructure isSubscribed prop
+export function MovieCard({ movie, isSubscribed }: MovieCardProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const { toast } = useToast();
-  // Removed user from useAuth as isSubscribed is now a prop
-  // const { user } = useAuth(); 
 
-  // Construct the full absolute URL for the thumbnail
-  const fullThumbnailUrl = movie.thumbnail_url
-    ? `${BACKEND_BASE_URL}${movie.thumbnail_url}`
-    : null;
+  // The backend should now be providing the full CloudFront URL directly in movie.thumbnail_url.
+  // We will directly use this URL.
+  const fullThumbnailUrl = movie.thumbnail_url;
 
   console.log(`Movie ID: ${movie.id}, Title: ${movie.title}, Thumbnail URL: ${fullThumbnailUrl}`);
   console.log(`  Created at value:`, movie.created_at, `(type: ${typeof movie.created_at})`);
-  // Add a log for the isSubscribed prop to debug its value
   console.log(`  isSubscribed prop in MovieCard:`, isSubscribed);
 
 
   const handleDownload = async () => {
-    // Use the isSubscribed prop directly
-    if (!isSubscribed) { 
+    if (!isSubscribed) {
       toast({
         title: "Subscription Required",
         description: "You need an active subscription to download movies.",
@@ -47,10 +38,11 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) { // Destruct
       return;
     }
 
-    if (!movie.file_url) {
+    // Now check for movie.s3_key, as this is what the backend uses for signed URLs
+    if (!movie.s3_key) {
       toast({
         title: "Error",
-        description: "Movie file URL is missing.",
+        description: "Movie file key is missing. Cannot download.",
         variant: "destructive"
       });
       return;
@@ -58,17 +50,22 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) { // Destruct
 
     setIsDownloading(true);
     try {
-      window.open(movie.file_url, '_blank'); // Directly opens the file URL
+      // Request a pre-signed download URL from your backend
+      const response = await nodeBackendService.getPresignedDownloadUrl(movie.s3_key);
+      const downloadUrl = response.downloadUrl;
+
+      // Redirect the user to the signed CloudFront URL to initiate download
+      window.open(downloadUrl, '_blank');
 
       toast({
         title: "Download Initiated",
-        description: `Attempting to download ${movie.title}.`
+        description: `${movie.title} download should begin shortly.`,
       });
     } catch (error) {
-      console.error("Direct access error:", error);
+      console.error("Error initiating download:", error);
       toast({
-        title: "Action Failed",
-        description: "Could not initiate movie download.",
+        title: "Download Failed",
+        description: `Could not initiate movie download: ${(error as Error).message}. Please try again.`,
         variant: "destructive"
       });
     } finally {
@@ -76,17 +73,15 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) { // Destruct
     }
   };
 
-  // Use the isSubscribed prop directly
   const isUserAllowedToDownload = isSubscribed;
 
   return (
     <Card className="overflow-hidden hover:shadow-lg transition-shadow">
-      {/* This Link wraps the image and header, making them clickable for navigation */}
       <Link to={`/movies/${movie.id}`} className="block">
         <div className="aspect-[2/3] relative">
           {fullThumbnailUrl ? (
             <img
-              src={fullThumbnailUrl}
+              src={fullThumbnailUrl} // Directly use the full CDN URL here
               alt={`${movie.title} thumbnail`}
               className="w-full h-full object-cover rounded-t-lg"
               onError={(e) => {
@@ -97,7 +92,7 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) { // Destruct
             />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center rounded-t-lg">
-              <Play className="h-12 w-12 text-primary/50" />
+              <Film className="h-12 w-12 text-primary/50" />
             </div>
           )}
         </div>
@@ -128,7 +123,7 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) { // Destruct
         {isUserAllowedToDownload ? (
           <Button
             onClick={handleDownload}
-            disabled={isDownloading || !movie.file_url}
+            disabled={isDownloading || !movie.s3_key} // Now checks for s3_key
             className="w-full"
           >
             <Download className="h-4 w-4 mr-2" />
