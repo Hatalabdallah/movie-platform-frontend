@@ -20,7 +20,11 @@ import MovieDetails from "./pages/MovieDetails";
 import Profile from "./pages/Profile";
 import Subscription from "./pages/Subscription";
 import Checkout from "./pages/Checkout";
-import Terms from "./pages/Terms"; // <--- Import the new Terms component
+import Terms from "./pages/Terms";
+import RefundCancellation from "./pages/RefundCancellation"; // New Import
+import PrivacyPolicy from "./pages/PrivacyPolicy";           // New Import
+import DMCAPolicy from "./pages/DMCAPolicy";                 // New Import
+import ContactUs from "./pages/ContactUs";                   // New Import
 import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
 
@@ -39,7 +43,11 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
-              <Route path="/terms" element={<Terms />} /> {/* <--- New Terms Route (Public) */}
+              <Route path="/terms" element={<Terms />} />
+              <Route path="/refund-cancellation" element={<RefundCancellation />} /> {/* New Route */}
+              <Route path="/privacy-policy" element={<PrivacyPolicy />} />       {/* New Route */}
+              <Route path="/dmca-policy" element={<DMCAPolicy />} />             {/* New Route */}
+              <Route path="/contact-us" element={<ContactUs />} />               {/* New Route */}
               <Route path="*" element={<NotFound />} /> {/* Catch-all for undefined routes */}
 
               {/* Authenticated Routes - Requires user to be logged in */}
