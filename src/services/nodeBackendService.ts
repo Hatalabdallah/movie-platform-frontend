@@ -1,10 +1,9 @@
-// movie-platform-frontend/src/services/nodeBackendService.ts
+// film-vault-downloads/src/services/nodeBackendService.ts
 
 import axios, { AxiosProgressEvent } from 'axios';
 // Removed specific imports for getToken and uuidv4 as apiClient handles auth and deviceId is managed by AuthContext
 
 // Define your API base URL
-// CORRECTED: Changed default API_BASE_URL to match backend's port 3001
 export const API_BASE_URL = import.meta.env.VITE_NODE_BACKEND_API_URL || 'http://localhost:3001/api';
 export const FRONTEND_BASE_URL = import.meta.env.VITE_FRONTEND_BASE_URL || 'http://localhost:3000';
 export const CLOUDFRONT_DOMAIN = import.meta.env.VITE_CLOUDFRONT_DOMAIN || ''; // Ensure CloudFront domain is available
@@ -55,7 +54,7 @@ export interface UserProfileResponse {
   createdAt: string;
   updatedAt: string;
   phone?: string | null;
-  subscription_end_date?: string | null;
+  subscription_end_date?: string | null; // Added to match backend response
 }
 
 export interface UserDownloadStatsResponse {
@@ -196,12 +195,17 @@ const apiClient = axios.create({
   },
 });
 
-// Request interceptor to add Authorization token
+// Request interceptor to add Authorization token AND Device ID
 apiClient.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('jwt_token'); // Use 'jwt_token' as per AuthContext
+    const token = localStorage.getItem('jwt_token');
+    const deviceId = localStorage.getItem('device_id'); // Retrieve device ID from local storage
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    if (deviceId) {
+      config.headers['X-Device-Id'] = deviceId; // Add custom header for device ID
     }
     return config;
   },
@@ -214,16 +218,16 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response && error.response.status === 401) {
-      localStorage.removeItem('jwt_token'); // Use 'jwt_token'
+    if (axios.isAxiosError(error) && error.response && error.response.status === 401) {
+      // If 401, it could be token expired OR session invalidated by device check.
+      // Clear token and device ID, then redirect to login.
+      localStorage.removeItem('jwt_token');
+      localStorage.removeItem('device_id'); // Clear device ID on 401
       window.location.href = '/login';
     }
     return Promise.reject(error);
   }
 );
-
-// Removed getAuthHeaders and getDeviceId as apiClient interceptors handle auth
-// and deviceId should be managed by AuthContext or app's entry point.
 
 export const nodeBackendService = {
   API_BASE_URL,
@@ -235,6 +239,8 @@ export const nodeBackendService = {
     try {
       devLog('Sending login request with:', { email, password: '[REDACTED]', deviceId });
       const response = await apiClient.post('/auth/login', { email, password, currentDeviceId: deviceId });
+      // Store deviceId upon successful login
+      localStorage.setItem('device_id', deviceId); // Use 'device_id' consistently
       return response.data;
     } catch (error) {
       console.error("Error during login via service:", error);
@@ -246,6 +252,8 @@ export const nodeBackendService = {
     try {
       devLog('Sending registration request with:', { email, password: '[REDACTED]', fullName, deviceId });
       const response = await apiClient.post('/auth/register', { email, password, fullName, currentDeviceId: deviceId });
+      // Store deviceId upon successful registration
+      localStorage.setItem('device_id', deviceId); // Use 'device_id' consistently
       return response.data;
     } catch (error) {
       console.error("Error during registration via service:", error);
@@ -253,15 +261,22 @@ export const nodeBackendService = {
     }
   },
 
-  async logout(): Promise<any> {
-    const response = await apiClient.post('/auth/logout');
-    return response.data;
+  async logout(deviceId: string): Promise<any> { // Logout now accepts deviceId
+    try {
+      // Send deviceId with logout request so backend can remove it specifically
+      const response = await apiClient.post('/auth/logout', { currentDeviceId: deviceId });
+      // Cleanup handled by interceptor on 401 or by AuthContext on success
+      return response.data;
+    } catch (error) {
+      console.error("Error during logout via service:", error);
+      throw error;
+    }
   },
 
   // --- USER PROFILE ---
   async getUserProfile(): Promise<UserProfileResponse> {
     try {
-      const response = await apiClient.get('/users/me/profile');
+      const response = await apiClient.get('/auth/profile'); // Corrected path to /auth/profile
       return response.data;
     } catch (error) {
       console.error("Error fetching user profile:", error);

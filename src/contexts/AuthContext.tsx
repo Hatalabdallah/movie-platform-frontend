@@ -1,9 +1,9 @@
 // movie-platform-frontend/src/contexts/AuthContext.tsx
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast"; // Corrected import path
 import { nodeBackendService, UserProfileResponse } from "@/services/nodeBackendService";
-import { v4 as uuidv4 } from 'uuid'; // Import uuid for generating device IDs
+import { v4 as uuidv4 } from 'uuid'; // Import uuidv4 for generating device IDs
 
 // Define the shape of your User object, including new fields
 interface User {
@@ -13,9 +13,11 @@ interface User {
   isAdmin: boolean;
   isSubscribed: boolean;
   subscriptionPlan?: string;
-  deviceId?: string;
-  phone?: string | null; // NEW: Added phone field
-  subscriptionEndDate?: string | null; // NEW: Added subscriptionEndDate field
+  deviceId?: string; // Stored device ID for the current session
+  phone?: string | null; // Added phone field
+  subscriptionEndDate?: string | null; // Added subscriptionEndDate field
+  createdAt: string; // ADDED: createdAt property
+  updatedAt: string; // ADDED: updatedAt property
 }
 
 // Define the shape of your AuthContext
@@ -24,12 +26,12 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isAdmin: boolean;
-  isSubscribed: boolean;
+  isSubscribed: boolean; // Exposed directly for convenience
   login: (email: string, password: string) => Promise<User | null>;
   register: (email: string, password: string, fullName: string) => Promise<User | null>;
   logout: () => void;
   loading: boolean;
-  checkUserProfile: () => Promise<User | null>;
+  checkUserProfile: () => Promise<User | null>; // Exposed to allow manual refresh
 }
 
 // Create the context with a default (undefined) value
@@ -49,10 +51,10 @@ const devLog = (...args: any[]) => {
 
 // Helper function to get or generate a device ID
 const getDeviceId = (): string => {
-  let deviceId = localStorage.getItem('deviceId');
+  let deviceId = localStorage.getItem('device_id'); // Use 'device_id' consistently
   if (!deviceId) {
     deviceId = uuidv4();
-    localStorage.setItem('deviceId', deviceId);
+    localStorage.setItem('device_id', deviceId); // Use 'device_id' consistently
   }
   return deviceId;
 };
@@ -67,13 +69,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const isAdmin = user ? user.isAdmin : false;
   const isSubscribed = user ? user.isSubscribed : false;
 
+  const cleanupAuthState = () => {
+    localStorage.removeItem('jwt_token');
+    localStorage.removeItem('device_id'); // Ensure device_id is also cleared on cleanup
+    setUser(null);
+    setToken(null);
+    devLog('[AuthContext] Auth state cleaned up.');
+  };
+
+  // This function now fetches the *full* user profile using nodeBackendService
   const checkUserProfile = async (): Promise<User | null> => {
     setLoading(true);
     const storedToken = localStorage.getItem('jwt_token');
+    const currentDeviceId = getDeviceId(); // Ensure deviceId is available for profile check
 
     if (storedToken) {
       try {
         devLog('[AuthContext] Checking user profile...');
+        // Use the service function to get the profile.
         const profileData: UserProfileResponse = await nodeBackendService.getUserProfile();
         devLog('[AuthContext] User profile fetched:', profileData);
 
@@ -84,24 +97,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           isAdmin: profileData.isAdmin,
           isSubscribed: profileData.isSubscribed,
           subscriptionPlan: profileData.subscriptionPlan,
-          deviceId: profileData.deviceIDs && profileData.deviceIDs.length > 0 ? profileData.deviceIDs[0] : undefined,
-          phone: profileData.phone, // NEW: Map phone
-          subscriptionEndDate: profileData.subscription_end_date, // NEW: Map subscription_end_date
+          deviceId: currentDeviceId, // Store the current device ID in the user object
+          phone: profileData.phone, // Map phone
+          subscriptionEndDate: profileData.subscription_end_date, // Map subscription_end_date
+          createdAt: profileData.createdAt, // Mapped from UserProfileResponse
+          updatedAt: profileData.updatedAt, // Mapped from UserProfileResponse
         };
 
         setUser(fetchedUser);
-        setToken(storedToken);
+        setToken(storedToken); // Ensure token is still set
         setLoading(false);
         devLog('[AuthContext] User profile set:', fetchedUser);
         return fetchedUser;
       } catch (error) {
         console.error('[AuthContext] Error checking user profile:', error);
+        // If profile check fails (e.g., 401 due to session invalidation), clean up
         cleanupAuthState();
         setLoading(false);
         return null;
       }
     }
-    cleanupAuthState();
+    // If no stored token, ensure loading is false and user/token are null
+    cleanupAuthState(); // Ensure state is clean if no token
     setLoading(false);
     devLog('[AuthContext] No stored token found, user not authenticated.');
     return null;
@@ -109,28 +126,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   useEffect(() => {
     checkUserProfile();
-  }, []);
+  }, []); // Run only once on mount
 
-  const cleanupAuthState = () => {
-    localStorage.removeItem('jwt_token');
-    setUser(null);
-    setToken(null);
-    devLog('[AuthContext] Auth state cleaned up.');
-  };
-
+  // Login function - now calls nodeBackendService.login
   const login = async (email: string, password: string): Promise<User | null> => {
     setLoading(true);
     devLog('[AuthContext] Attempting login...');
     try {
-      cleanupAuthState();
-      const deviceId = getDeviceId(); // Get or generate device ID
+      cleanupAuthState(); // Ensure clean state before new login attempt
 
+      const deviceId = getDeviceId(); // Get or generate device ID for login
       devLog('[AuthContext] Calling nodeBackendService.login...');
       const { token: newToken, user: fetchedUserProfile } = await nodeBackendService.login(email, password, deviceId); // Pass deviceId
       devLog('[AuthContext] nodeBackendService.login returned:', { newToken, fetchedUserProfile });
 
       localStorage.setItem('jwt_token', newToken);
-      setToken(newToken);
+      // nodeBackendService.login already sets device_id in local storage
 
       const mappedUser: User = {
         id: fetchedUserProfile.id,
@@ -139,40 +150,44 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isAdmin: fetchedUserProfile.isAdmin,
         isSubscribed: fetchedUserProfile.isSubscribed,
         subscriptionPlan: fetchedUserProfile.subscriptionPlan,
-        deviceId: fetchedUserProfile.deviceIDs && fetchedUserProfile.deviceIDs.length > 0 ? fetchedUserProfile.deviceIDs[0] : undefined,
-        phone: fetchedUserProfile.phone, // NEW: Map phone
-        subscriptionEndDate: fetchedUserProfile.subscription_end_date, // NEW: Map subscription_end_date
+        deviceId: deviceId, // Set the current device ID
+        createdAt: fetchedUserProfile.createdAt,
+        updatedAt: fetchedUserProfile.updatedAt,
+        phone: fetchedUserProfile.phone, // Map phone
+        subscriptionEndDate: fetchedUserProfile.subscription_end_date, // Map subscription_end_date
       };
       setUser(mappedUser);
+      setToken(newToken);
       setLoading(false);
       devLog('[AuthContext] Login successful, user set:', mappedUser);
       return mappedUser;
     } catch (error) {
-      console.error('[AuthContext] Error during login:', error);
+      console.error('[AuthContext] Error during login:', error); // This is the key log
       toast({
         title: "Login Failed",
         description: (error as Error).message || "Invalid credentials. Please try again.",
         variant: "destructive",
       });
-      cleanupAuthState();
+      cleanupAuthState(); // Clean up on login failure
       setLoading(false);
       return null;
     }
   };
 
+  // Register function - now calls nodeBackendService.register
   const register = async (email: string, password: string, fullName: string): Promise<User | null> => {
     setLoading(true);
     devLog('[AuthContext] Attempting registration...');
     try {
-      cleanupAuthState();
-      const deviceId = getDeviceId(); // Get or generate device ID
+      cleanupAuthState(); // Ensure clean state before new registration attempt
 
+      const deviceId = getDeviceId(); // Get or generate device ID for registration
       devLog('[AuthContext] Calling nodeBackendService.register...');
       const { token: newToken, user: fetchedUserProfile } = await nodeBackendService.register(email, password, fullName, deviceId); // Pass deviceId
       devLog('[AuthContext] nodeBackendService.register returned:', { newToken, fetchedUserProfile });
 
       localStorage.setItem('jwt_token', newToken);
-      setToken(newToken);
+      // nodeBackendService.register already sets device_id in local storage
 
       const mappedUser: User = {
         id: fetchedUserProfile.id,
@@ -181,9 +196,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isAdmin: fetchedUserProfile.isAdmin,
         isSubscribed: fetchedUserProfile.isSubscribed,
         subscriptionPlan: fetchedUserProfile.subscriptionPlan,
-        deviceId: fetchedUserProfile.deviceIDs && fetchedUserProfile.deviceIDs.length > 0 ? fetchedUserProfile.deviceIDs[0] : undefined,
-        phone: fetchedUserProfile.phone, // NEW: Map phone
-        subscriptionEndDate: fetchedUserProfile.subscription_end_date, // NEW: Map subscription_end_date
+        deviceId: deviceId, // Set the current device ID
+        createdAt: fetchedUserProfile.createdAt,
+        updatedAt: fetchedUserProfile.updatedAt,
+        phone: fetchedUserProfile.phone, // Map phone
+        subscriptionEndDate: fetchedUserProfile.subscription_end_date, // Map subscription_end_date
       };
       setUser(mappedUser);
       setLoading(false);
@@ -200,15 +217,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         description: (error as Error).message || "An unexpected error occurred during registration. Please try again.",
         variant: "destructive",
       });
-      cleanupAuthState();
+      cleanupAuthState(); // Clean up on registration failure
       setLoading(false);
       return null;
     }
   };
 
   const logout = () => {
-    cleanupAuthState();
-    window.location.href = '/';
+    const deviceId = localStorage.getItem('device_id'); // Get deviceId to send to backend
+    if (deviceId) {
+      nodeBackendService.logout(deviceId).finally(() => { // Call logout with deviceId
+        cleanupAuthState();
+        window.location.href = '/'; // Full page reload to clear all state
+      });
+    } else {
+      cleanupAuthState();
+      window.location.href = '/';
+    }
   };
 
   const contextValue: AuthContextType = {
@@ -221,7 +246,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     register,
     logout,
     loading,
-    checkUserProfile,
+    checkUserProfile, // Expose checkUserProfile for manual refresh
   };
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
