@@ -5,10 +5,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Film, Download, Play, Calendar, Crown, User } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast"; // Corrected import path
-// Import Movie interface and CLOUDFRONT_DOMAIN from nodeBackendService
+import { useToast } from "@/components/ui/use-toast";
 import { Movie as NodeMovie, nodeBackendService, CLOUDFRONT_DOMAIN } from "@/services/nodeBackendService";
 import { Link } from "react-router-dom";
+import axios from 'axios'; // Import axios to check for AxiosError
 
 interface MovieCardProps {
   movie: NodeMovie;
@@ -19,8 +19,6 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const { toast } = useToast();
 
-  // The backend should now be providing the full CloudFront URL directly in movie.thumbnail_url.
-  // We will directly use this URL.
   const fullThumbnailUrl = movie.thumbnail_url;
 
   console.log(`Movie ID: ${movie.id}, Title: ${movie.title}, Thumbnail URL: ${fullThumbnailUrl}`);
@@ -38,7 +36,6 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) {
       return;
     }
 
-    // Now check for movie.s3_key, as this is what the backend uses for signed URLs
     if (!movie.s3_key) {
       toast({
         title: "Error",
@@ -50,11 +47,9 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) {
 
     setIsDownloading(true);
     try {
-      // Request a pre-signed download URL from your backend
       const response = await nodeBackendService.getPresignedDownloadUrl(movie.s3_key);
       const downloadUrl = response.downloadUrl;
 
-      // Redirect the user to the signed CloudFront URL to initiate download
       window.open(downloadUrl, '_blank');
 
       toast({
@@ -63,11 +58,31 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) {
       });
     } catch (error) {
       console.error("Error initiating download:", error);
-      toast({
-        title: "Download Failed",
-        description: `Could not initiate movie download: ${(error as Error).message}. Please try again.`,
-        variant: "destructive"
-      });
+      // --- NEW LOGIC: Handle 409 Conflict for already downloaded movies ---
+      if (axios.isAxiosError(error) && error.response) {
+        if (error.response.status === 409) {
+          toast({
+            title: "Download Not Allowed",
+            description: error.response.data.message || "You have already downloaded this movie.",
+            variant: "default", // Use default or info variant for this case
+          });
+        } else {
+          // Handle other API errors
+          toast({
+            title: "Download Failed",
+            description: error.response.data.message || "Could not initiate movie download. Please try again.",
+            variant: "destructive",
+          });
+        }
+      } else {
+        // Handle non-Axios errors or network errors
+        toast({
+          title: "Download Failed",
+          description: `An unexpected error occurred: ${(error as Error).message}. Please try again.`,
+          variant: "destructive",
+        });
+      }
+      // --- END NEW LOGIC ---
     } finally {
       setIsDownloading(false);
     }
@@ -81,7 +96,7 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) {
         <div className="aspect-[2/3] relative">
           {fullThumbnailUrl ? (
             <img
-              src={fullThumbnailUrl} // Directly use the full CDN URL here
+              src={fullThumbnailUrl}
               alt={`${movie.title} thumbnail`}
               className="w-full h-full object-cover rounded-t-lg"
               onError={(e) => {
@@ -123,7 +138,7 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) {
         {isUserAllowedToDownload ? (
           <Button
             onClick={handleDownload}
-            disabled={isDownloading || !movie.s3_key} // Now checks for s3_key
+            disabled={isDownloading || !movie.s3_key}
             className="w-full"
           >
             <Download className="h-4 w-4 mr-2" />

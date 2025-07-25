@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Film, Download, Star, Clock, Calendar, Globe, LogOut, Crown, ArrowLeft, Sun, Moon } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast"; // Corrected import path
+import { useToast } from "@/components/ui/use-toast";
 import { Movie as NodeMovie, nodeBackendService, CLOUDFRONT_DOMAIN } from "@/services/nodeBackendService";
 import { useTheme } from '@/contexts/ThemeContext';
+import axios from 'axios'; // Import axios to check for AxiosError
 
 const MovieDetails = () => {
   const { user, logout } = useAuth();
@@ -92,8 +93,6 @@ const MovieDetails = () => {
       return;
     }
 
-    // Ensure movie.s3_key exists before attempting download
-    // The backend now expects s3_key to generate the signed URL
     if (!movie.s3_key) {
       toast({
         title: "Error",
@@ -105,12 +104,9 @@ const MovieDetails = () => {
 
     setIsDownloading(true);
     try {
-      // Request a pre-signed download URL from your backend
-      // This calls the new endpoint in userRoutes.js
       const response = await nodeBackendService.getPresignedDownloadUrl(movie.s3_key);
       const downloadUrl = response.downloadUrl;
 
-      // Redirect the user to the signed CloudFront URL to initiate download
       window.open(downloadUrl, '_blank');
 
       toast({
@@ -119,11 +115,31 @@ const MovieDetails = () => {
       });
     } catch (error) {
       console.error("Error initiating download:", error);
-      toast({
-        title: "Download Failed",
-        description: `Could not initiate movie download: ${(error as Error).message}. Please try again.`,
-        variant: "destructive",
-      });
+      // --- NEW LOGIC: Handle 409 Conflict for already downloaded movies ---
+      if (axios.isAxiosError(error) && error.response) {
+        if (error.response.status === 409) {
+          toast({
+            title: "Download Not Allowed",
+            description: error.response.data.message || "You have already downloaded this movie.",
+            variant: "default", // Use default or info variant for this case
+          });
+        } else {
+          // Handle other API errors
+          toast({
+            title: "Download Failed",
+            description: error.response.data.message || "Could not initiate movie download. Please try again.",
+            variant: "destructive",
+          });
+        }
+      } else {
+        // Handle non-Axios errors or network errors
+        toast({
+          title: "Download Failed",
+          description: `An unexpected error occurred: ${(error as Error).message}. Please try again.`,
+          variant: "destructive",
+        });
+      }
+      // --- END NEW LOGIC ---
     } finally {
       setIsDownloading(false);
     }
@@ -138,8 +154,6 @@ const MovieDetails = () => {
     }
   };
 
-  // Simplified thumbnail URL construction:
-  // We assume the backend always returns the full CloudFront URL in movie.thumbnail_url
   const thumbnailUrl = movie.thumbnail_url;
 
   return (
@@ -215,7 +229,7 @@ const MovieDetails = () => {
                 <Button
                   size="lg"
                   onClick={handleDownload}
-                  disabled={isDownloading || !movie.s3_key} // Now checks for s3_key
+                  disabled={isDownloading || !movie.s3_key}
                   className="px-8"
                 >
                   <Download className="h-5 w-5 mr-2" />
