@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTheme } from '@/contexts/ThemeContext'; // Your custom ThemeContext
+import { useTheme } from '@/contexts/ThemeContext';
 import { useQuery, useMutation, UseQueryOptions } from '@tanstack/react-query';
 import { nodeBackendService, SubscriptionPlan, InitiatePaymentRequest, VerifyPaymentResponse, UserProfileResponse } from '@/services/nodeBackendService';
 import { useToast } from '@/components/ui/use-toast';
@@ -14,8 +14,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
-
 import { CreditCard, Wallet, Banknote } from 'lucide-react';
+
+// NEW: Thank you page component for a better user experience
+const ThankYouPage = ({ fullName, planName, priceDisplay, periodDisplay }: { fullName: string, planName: string, priceDisplay: string, periodDisplay: string }) => (
+  <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-primary/5 via-background to-muted text-center p-4">
+    <Check className="h-20 w-20 text-green-500 mb-6 animate-scale-in" />
+    <h1 className="text-4xl md:text-5xl font-extrabold text-primary mb-2">Thank You, {fullName}!</h1>
+    <h2 className="text-xl md:text-2xl font-semibold text-foreground mb-4">For choosing Ronnie's Entertainment.</h2>
+    <p className="text-lg text-muted-foreground max-w-2xl">
+      Your subscription for the <span className="font-bold text-primary">{planName}</span> plan has been successfully activated.
+    </p>
+    <p className="text-lg text-muted-foreground">
+      You will be redirected to the movies page in a moment.
+    </p>
+    <Button asChild className="mt-8">
+      <Link to="/dashboard">Go to Movies</Link>
+    </Button>
+  </div>
+);
 
 const Checkout: React.FC = () => {
   const { user, logout, checkUserProfile } = useAuth();
@@ -40,7 +57,10 @@ const Checkout: React.FC = () => {
   const [country, setCountry] = useState<string>('Uganda');
 
   const { theme, toggleTheme } = useTheme();
-  const currentYear = new Date().getFullYear(); // Get the current year dynamically
+  const currentYear = new Date().getFullYear();
+
+  // NEW: State for showing the "Thank You" page
+  const [isSubscriptionActive, setIsSubscriptionActive] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -48,7 +68,6 @@ const Checkout: React.FC = () => {
     }
   }, [user, navigate]);
 
-  // IMPORTANT: Removed onSuccess and onError directly from userProfileQueryOptions
   const userProfileQueryOptions: UseQueryOptions<UserProfileResponse, Error, UserProfileResponse, ['userProfile']> = {
     queryKey: ['userProfile'],
     queryFn: nodeBackendService.getUserProfile,
@@ -57,7 +76,6 @@ const Checkout: React.FC = () => {
 
   const { data: userProfile, isLoading: isLoadingProfile, error: profileError } = useQuery(userProfileQueryOptions);
 
-  // NEW: useEffect to handle successful userProfile data fetching
   useEffect(() => {
     if (userProfile) {
       setFullName(userProfile.fullName || '');
@@ -66,9 +84,8 @@ const Checkout: React.FC = () => {
         setPhone(userProfile.phone);
       }
     }
-  }, [userProfile]); // Dependency on userProfile data
+  }, [userProfile]);
 
-  // NEW: useEffect to handle userProfile fetch errors
   useEffect(() => {
     if (profileError) {
       console.error("Error fetching user profile:", profileError);
@@ -78,7 +95,7 @@ const Checkout: React.FC = () => {
         variant: "destructive",
       });
     }
-  }, [profileError, toast]); // Dependency on profileError and toast
+  }, [profileError, toast]);
 
   const { data: plans, isLoading: isLoadingPlans, error: plansError } = useQuery<SubscriptionPlan[], Error>({
     queryKey: ['subscriptionPlans'],
@@ -126,6 +143,17 @@ const Checkout: React.FC = () => {
     },
   });
 
+  // NEW: useEffect to handle successful payment and redirect to thank you page
+  useEffect(() => {
+    if (isSubscriptionActive) {
+        // Redirect to a Thank You page or movies page after a delay
+        const timer = setTimeout(() => {
+            navigate('/dashboard', { replace: true });
+        }, 5000); // Redirect after 5 seconds
+        return () => clearTimeout(timer); // Cleanup the timer
+    }
+  }, [isSubscriptionActive, navigate]);
+
   useEffect(() => {
     const dpoToken = searchParams.get('Ptrid');
     const paymentStatus = searchParams.get('payment_status');
@@ -151,7 +179,9 @@ const Checkout: React.FC = () => {
               variant: "default",
             });
             await checkUserProfile();
-            navigate("/dashboard", { replace: true });
+            // NEW: Set state to show the thank you page instead of immediate redirect
+            setIsSubscriptionActive(true);
+            setIsPaymentProcessing(false);
           } else {
             toast({
               title: "Payment Failed",
@@ -226,7 +256,7 @@ const Checkout: React.FC = () => {
     initiatePaymentMutation.mutate(paymentPayload);
   };
 
-  if (isLoadingPlans || isLoadingProfile || !user || !selectedPlan || isPaymentProcessing || initiatePaymentMutation.isPending) {
+  if (isLoadingPlans || isLoadingProfile || !user || !selectedPlan || initiatePaymentMutation.isPending) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -235,6 +265,13 @@ const Checkout: React.FC = () => {
         </span>
       </div>
     );
+  }
+
+  // NEW: Render the ThankYouPage component if subscription is active
+  if (isSubscriptionActive && selectedPlan) {
+    const priceDisplay = `UGX ${parseFloat(selectedPlan.price_ugx).toLocaleString('en-UG', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    const periodDisplay = selectedPlan.duration_unit;
+    return <ThankYouPage fullName={fullName} planName={selectedPlan.plan_name} priceDisplay={priceDisplay} periodDisplay={periodDisplay} />;
   }
 
   if (plansError || profileError || !selectedPlan) {
@@ -418,7 +455,7 @@ const Checkout: React.FC = () => {
           </Card>
 
           {/* Payment Method */}
-          <Card className="mb-6">
+          {/* <Card className="mb-6">
             <CardHeader className="border-b">
               <CardTitle className="text-xl font-semibold">Payment Method</CardTitle>
             </CardHeader>
@@ -444,7 +481,7 @@ const Checkout: React.FC = () => {
                 </div>
               </RadioGroup>
             </CardContent>
-          </Card>
+          </Card> */}
 
           {/* Additional Notes */}
           <Card className="mb-6">
@@ -532,8 +569,7 @@ const Checkout: React.FC = () => {
             <Button
               variant="outline"
               className="w-full mt-4 py-3 text-lg"
-              // Use navigate(-1) here
-              onClick={() => navigate(-1)} // Changed from navigate('/subscription') to go back
+              onClick={() => navigate(-1)}
               disabled={initiatePaymentMutation.isPending || isPaymentProcessing}
             >
               Cancel and Go Back
@@ -542,8 +578,7 @@ const Checkout: React.FC = () => {
           </Card>
         </div>
       </div>
-      {/* Footer */}
-      <footer className="border-t bg-background py-12 px-4 mt-auto"> {/* Added mt-auto to push footer to bottom */}
+      <footer className="border-t bg-background py-12 px-4 mt-auto">
         <div className="container mx-auto text-center">
           <div className="flex items-center justify-center space-x-2 mb-4">
             <Film className="h-6 w-6 text-primary" />
