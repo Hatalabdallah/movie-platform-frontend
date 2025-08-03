@@ -41,7 +41,6 @@ const Checkout: React.FC = () => {
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<string>('mobile_money');
   const [additionalNotes, setAdditionalNotes] = useState<string>('');
 
   const [fullName, setFullName] = useState<string>('');
@@ -59,7 +58,6 @@ const Checkout: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const currentYear = new Date().getFullYear();
 
-  // NEW: State for showing the "Thank You" page
   const [isSubscriptionActive, setIsSubscriptionActive] = useState(false);
 
   useEffect(() => {
@@ -143,19 +141,18 @@ const Checkout: React.FC = () => {
     },
   });
 
-  // NEW: useEffect to handle successful payment and redirect to thank you page
   useEffect(() => {
     if (isSubscriptionActive) {
-        // Redirect to a Thank You page or movies page after a delay
         const timer = setTimeout(() => {
             navigate('/dashboard', { replace: true });
-        }, 5000); // Redirect after 5 seconds
-        return () => clearTimeout(timer); // Cleanup the timer
+        }, 5000);
+        return () => clearTimeout(timer);
     }
   }, [isSubscriptionActive, navigate]);
 
   useEffect(() => {
-    const dpoToken = searchParams.get('Ptrid');
+    // UPDATED: Check for multiple possible DPO token parameters
+    const dpoToken = searchParams.get('Ptrid') || searchParams.get('TransactionToken');
     const paymentStatus = searchParams.get('payment_status');
     const redirectedPlanId = searchParams.get('planId');
 
@@ -170,6 +167,7 @@ const Checkout: React.FC = () => {
             duration: 10000,
           });
 
+          // Pass the generic token variable to the service function
           const verificationResponse: VerifyPaymentResponse = await nodeBackendService.verifyDPOPayment(dpoToken);
 
           if (verificationResponse.status === 'successful') {
@@ -179,7 +177,6 @@ const Checkout: React.FC = () => {
               variant: "default",
             });
             await checkUserProfile();
-            // NEW: Set state to show the thank you page instead of immediate redirect
             setIsSubscriptionActive(true);
             setIsPaymentProcessing(false);
           } else {
@@ -238,7 +235,7 @@ const Checkout: React.FC = () => {
     console.log("Customer Details for Checkout:", {
       fullName, email, phone,
       company, streetAddress1, streetAddress2, city, region, postcode, country,
-      paymentMethod, additionalNotes
+      additionalNotes
     });
 
 
@@ -247,12 +244,12 @@ const Checkout: React.FC = () => {
       amount: parseFloat(selectedPlan.price_ugx),
       currency: "UGX",
       description: `Subscription for ${selectedPlan.plan_name}`,
-      selected_payment_method: paymentMethod,
+      selected_payment_method: "mobile_money",
       client_redirect_url: `${nodeBackendService.FRONTEND_BASE_URL}/checkout/${selectedPlan.id}?payment_status=success&planId=${selectedPlan.id}`,
       client_back_url: `${nodeBackendService.FRONTEND_BASE_URL}/checkout/${selectedPlan.id}?payment_status=cancelled&planId=${selectedPlan.id}`,
     };
 
-    console.log(`Initiating payment with: ${paymentMethod}`);
+    console.log(`Initiating payment...`);
     initiatePaymentMutation.mutate(paymentPayload);
   };
 
@@ -267,7 +264,6 @@ const Checkout: React.FC = () => {
     );
   }
 
-  // NEW: Render the ThankYouPage component if subscription is active
   if (isSubscriptionActive && selectedPlan) {
     const priceDisplay = `UGX ${parseFloat(selectedPlan.price_ugx).toLocaleString('en-UG', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
     const periodDisplay = selectedPlan.duration_unit;
@@ -453,35 +449,6 @@ const Checkout: React.FC = () => {
               </div>
             </CardContent>
           </Card>
-
-          {/* Payment Method */}
-          {/* <Card className="mb-6">
-            <CardHeader className="border-b">
-              <CardTitle className="text-xl font-semibold">Payment Method</CardTitle>
-            </CardHeader>
-            <CardContent className="p-6">
-              <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="space-y-4">
-                <div className="flex items-center space-x-3">
-                  <RadioGroupItem value="mobile_money" id="mobile_money" />
-                  <Label htmlFor="mobile_money" className="text-base font-medium flex items-center">
-                    <Phone className="mr-2 h-5 w-5" /> Mobile Money
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <RadioGroupItem value="bank_transfer" id="bank_transfer" />
-                  <Label htmlFor="bank_transfer" className="text-base font-medium flex items-center">
-                    <Banknote className="mr-2 h-5 w-5" /> Bank Transfer
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <RadioGroupItem value="visa_card" id="visa_card" />
-                  <Label htmlFor="visa_card" className="text-base font-medium flex items-center">
-                    <CreditCard className="mr-2 h-5 w-5" /> Visa Card
-                  </Label>
-                </div>
-              </RadioGroup>
-            </CardContent>
-          </Card> */}
 
           {/* Additional Notes */}
           <Card className="mb-6">
