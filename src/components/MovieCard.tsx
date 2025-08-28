@@ -147,7 +147,6 @@ export function MovieCard({ movie, isSubscribed }: MovieCardProps) {
         ) : (
           <Link to="/subscription" className="w-full">
             <Button className="w-full">
-              <Crown className="h-4 w-4 mr-2" />
               Subscribe to Download
             </Button>
           </Link>
