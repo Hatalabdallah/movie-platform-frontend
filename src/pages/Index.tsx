@@ -159,7 +159,7 @@ const Index = () => {
                       <>
                         <Link to="/register">
                           <Button size="lg" className="px-8 py-6 text-lg">
-                            Start Free Trial
+                            Join Now
                             {/* Changed Play icon to Download icon for starting a trial for downloads */}
                             <Download className="ml-2 h-5 w-5" />
                           </Button>
