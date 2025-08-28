@@ -238,7 +238,6 @@ const MovieDetails = () => {
               ) : (
                 <Link to="/subscription">
                   <Button size="lg" className="px-8">
-                    <Crown className="h-5 w-5 mr-2" />
                     Subscribe to Download
                   </Button>
                 </Link>
